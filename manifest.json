@@ -1,0 +1,26 @@
+﻿{
+  "id": "./login.html",
+  "name": "Painel Operacional Confiança",
+  "short_name": "Painel",
+  "description": "Painel operacional de checklists da Confiança Supermercados.",
+  "start_url": "./login.html",
+  "scope": "./",
+  "display": "standalone",
+  "background_color": "#0f1115",
+  "theme_color": "#d60000",
+  "orientation": "portrait",
+  "icons": [
+    {
+      "src": "icon-192.png",
+      "sizes": "192x192",
+      "type": "image/png",
+      "purpose": "any maskable"
+    },
+    {
+      "src": "icon-512.png",
+      "sizes": "512x512",
+      "type": "image/png",
+      "purpose": "any maskable"
+    }
+  ]
+}

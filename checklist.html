@@ -1,0 +1,87 @@
+﻿<!DOCTYPE html><html lang="pt-br"><head><meta charset="UTF-8"><meta name="viewport" content="width=device-width, initial-scale=1.0"><title>Checklist</title><link rel="manifest" href="manifest.json"><link rel="icon" href="icon-192.png"><link rel="stylesheet" href="styles.css?v=6.15-device-20260623"><script src="https://cdnjs.cloudflare.com/ajax/libs/jspdf/2.5.1/jspdf.umd.min.js"></script></head><body>
+<div class="container"><div class="topbar"><div class="logoArea"><img src="icon-512.png" class="logo"><div><h1 id="titulo">Checklist</h1><div class="sub" id="subtitulo"></div></div></div><button class="red" style="width:auto;margin:0" onclick="cancelarExecucao()">Cancelar execução</button></div><div class="card"><div><b>Responsável:</b> <span id="responsavel"></span></div><div><b>Início:</b> <span id="inicio"></span></div><div><b>Término:</b> <span id="fim">--:--</span></div></div><div id="tarefas"></div><button onclick="finalizar()">✅ Finalizar e enviar PDF</button></div>
+<div class="modal" id="cameraModal"><div class="modalContent"><h2>📷 Câmera</h2><video id="video" autoplay playsinline></video><div class="row"><button onclick="capturarFoto()">Capturar</button><button class="secondary" onclick="fecharCamera()">Cancelar</button></div></div></div>
+<div class="modal" id="envioModal"><div class="modalContent progressModal"><h2 id="envioTitulo">Gerando PDF</h2><p id="envioTexto">Preparando arquivo e enviando para o Drive...</p><div class="progressTrack"><div id="envioBarra" class="progressBar" style="width:0%"></div></div><div id="envioPct" class="progressPct">0%</div></div></div>
+<div class="modal" id="avisoModal"><div class="modalContent confirmModal"><h2 id="avisoTitulo">Atenção</h2><p id="avisoTexto"></p><button id="avisoOk" type="button">OK</button></div></div>
+<script src="config.js?v=6.15-device-20260623"></script><script src="app.js?v=6.15-device-20260623"></script><script>
+const usuario=exigirLogin(),params=new URLSearchParams(location.search),id=params.get("id"),idExec=params.get("exec");let checklist=null,inicio=new Date(),fotoAtualIndex=null,stream=null,envioTimer=null,envioHardTimer=null,envioProgresso=0,execucaoFinalizando=false,execucaoLiberada=false,envioEncerrado=false,saidaPermitida=false;
+history.pushState({checklist:true},"",location.href);window.onpopstate=function(){history.pushState({checklist:true},"",location.href);confirmarSaidaChecklist()};
+async function iniciar(){const lista=await obterChecklists();checklist=lista.find(c=>c.id===id);if(!checklist){await mostrarAviso("Checklist não encontrado","Volte ao painel e tente abrir novamente.");location.href="painel.html";return}let execAtual=getExecLocal(idExec);if(!execAtual){const online=await carregarExecucoesOnline(hojeISO(),hojeISO(),true);execAtual=online.find(e=>e.idExecucao===idExec)||null}const st=statusExecucao(checklist,execAtual);if(["expirado","finalizado","aguardando"].includes(st)){await mostrarAviso("Checklist indisponível","Este checklist não está disponível para execução agora.");location.href="painel.html";return}document.title=checklist.nome;titulo.innerText=checklist.nome;subtitulo.innerText=`${checklist.descricao} • ${checklist.horario} até ${checklist.horarioFim}`;responsavel.innerText=`${usuario.nome} (${usuario.login})`;document.getElementById("inicio").innerText=horaBR();montar()}
+function montar(){tarefas.innerHTML=checklist.tarefas.map((t,i)=>`<div class="task" id="task${i}"><div class="taskHeader"><input type="checkbox" id="c${i}" onchange="salvarRascunho()"><div>${t}</div></div><textarea id="obs${i}" placeholder="Observações..." oninput="salvarRascunho()"></textarea><button class="secondary" onclick="abrirCamera(${i})">📷 Tirar foto agora</button><div id="fotoBox${i}"></div></div>`).join("");desativarSugestoesCampos(tarefas);restaurarRascunho()}
+function abrirBancoFotos(){return new Promise((resolve,reject)=>{if(!("indexedDB"in window)){reject(new Error("IndexedDB indisponível"));return}const req=indexedDB.open("checklistRascunhos",1);req.onupgradeneeded=()=>{const db=req.result;if(!db.objectStoreNames.contains("fotos"))db.createObjectStore("fotos",{keyPath:"id"})};req.onsuccess=()=>resolve(req.result);req.onerror=()=>reject(req.error||new Error("Falha ao abrir IndexedDB"))})}
+async function salvarFotoRascunho(i,blob){try{const db=await abrirBancoFotos();await new Promise((resolve,reject)=>{const tx=db.transaction("fotos","readwrite");tx.objectStore("fotos").put({id:`${idExec}_${i}`,idExec,index:i,blob,atualizadoEm:new Date().toISOString()});tx.oncomplete=resolve;tx.onerror=()=>reject(tx.error)});db.close()}catch(e){}}
+async function obterFotoRascunho(i){try{const db=await abrirBancoFotos();const foto=await new Promise((resolve,reject)=>{const tx=db.transaction("fotos","readonly"),req=tx.objectStore("fotos").get(`${idExec}_${i}`);req.onsuccess=()=>resolve(req.result||null);req.onerror=()=>reject(req.error)});db.close();return foto?.blob||null}catch(e){return null}}
+async function limparFotosRascunho(){try{const db=await abrirBancoFotos();await new Promise((resolve,reject)=>{const tx=db.transaction("fotos","readwrite"),store=tx.objectStore("fotos");for(let i=0;i<(checklist?.tarefas?.length||60);i++)store.delete(`${idExec}_${i}`);tx.oncomplete=resolve;tx.onerror=()=>reject(tx.error)});db.close()}catch(e){}}
+function mostrarFotoBlob(i,blob){const img=document.createElement("img");img.src=URL.createObjectURL(blob);img.className="previewImg";img.id="foto"+i;img.dataset.blobUrl=img.src;const box=document.getElementById("fotoBox"+i);if(box){box.innerHTML="";box.appendChild(img)}}
+async function abrirCamera(i){fotoAtualIndex=i;cameraModal.style.display="flex";try{try{stream=await navigator.mediaDevices.getUserMedia({video:{facingMode:"environment",width:{ideal:1280},height:{ideal:720}},audio:false})}catch(e){stream=await navigator.mediaDevices.getUserMedia({video:true,audio:false})}video.srcObject=stream}catch(err){fecharCamera();await mostrarAviso("Câmera indisponível","Não foi possível abrir a câmera. Verifique a permissão do navegador.",document.getElementById("task"+i))}}
+function fecharCamera(){cameraModal.style.display="none";if(stream){stream.getTracks().forEach(t=>t.stop());stream=null}}
+function capturarFoto(){const canvas=document.createElement("canvas"),maxW=APP.FOTO_CAPTURA_MAX_WIDTH||720,ratio=video.videoHeight/video.videoWidth||1,w=Math.min(maxW,video.videoWidth||maxW);canvas.width=w;canvas.height=Math.round(w*ratio);canvas.getContext("2d").drawImage(video,0,0,canvas.width,canvas.height);canvas.toBlob(blob=>{if(!blob)return;mostrarFotoBlob(fotoAtualIndex,blob);salvarFotoRascunho(fotoAtualIndex,blob);salvarRascunho()},"image/jpeg",APP.FOTO_CAPTURA_QUALIDADE||0.45);fecharCamera()}
+function chaveRascunho(){return `rascunho_${idExec}`}
+function salvarRascunho(){if(!checklist||execucaoFinalizando)return;const tarefas=checklist.tarefas.map((_,i)=>({check:!!document.getElementById("c"+i)?.checked,obs:document.getElementById("obs"+i)?.value||""}));try{setJSONLocalSeguro(chaveRascunho(),{idExec,idChecklist:id,atualizadoEm:new Date().toISOString(),tarefas})}catch(e){}}
+function restaurarRascunho(){try{const r=JSON.parse(localStorage.getItem(chaveRascunho())||"null");if(r&&Array.isArray(r.tarefas))r.tarefas.forEach((t,i)=>{const c=document.getElementById("c"+i),obs=document.getElementById("obs"+i);if(c)c.checked=!!t.check;if(obs)obs.value=t.obs||""});(checklist?.tarefas||[]).forEach((_,i)=>obterFotoRascunho(i).then(blob=>{if(blob)mostrarFotoBlob(i,blob)}))}catch(e){}}
+function limparRascunho(){localStorage.removeItem(chaveRascunho());limparFotosRascunho()}
+function addWrapped(pdf,text,x,y,w,h){const lines=pdf.splitTextToSize(String(text||""),w);pdf.text(lines,x,y);return y+lines.length*h}
+function ensurePage(pdf,y,n){if(y+n>275){pdf.addPage();return 18}return y}
+function atualizarProgresso(v,titulo,texto){envioProgresso=Math.max(envioProgresso,Math.min(100,Math.round(v)));envioBarra.style.width=envioProgresso+"%";envioPct.innerText=envioProgresso+"%";if(titulo)envioTitulo.innerText=titulo;if(texto)envioTexto.innerText=texto}
+function abrirProgresso(){clearInterval(envioTimer);clearTimeout(envioHardTimer);envioEncerrado=false;envioModal.style.display="flex";envioProgresso=0;atualizarProgresso(0,"Gerando PDF","Preparando arquivo e enviando para o Drive...");envioTimer=setInterval(()=>{if(envioProgresso<88)atualizarProgresso(envioProgresso+1)},450)}
+function concluirProgresso(titulo,texto){if(envioEncerrado)return;envioEncerrado=true;clearInterval(envioTimer);clearTimeout(envioHardTimer);atualizarProgresso(100,titulo,texto)}
+function concluirEnvioEVoltar(titulo,texto,delay=1600){concluirProgresso(titulo,texto);setTimeout(()=>{location.href="painel.html"},delay)}
+function rolarParaPendencia(el){if(!el)return;document.querySelectorAll(".pendenteFoco").forEach(x=>x.classList.remove("pendenteFoco"));el.classList.add("pendenteFoco");el.scrollIntoView({behavior:"smooth",block:"center"});setTimeout(()=>el.classList.remove("pendenteFoco"),3500)}
+function mostrarAviso(titulo,texto,el=null){return new Promise(resolve=>{avisoTitulo.innerText=titulo||"Atenção";avisoTexto.innerText=texto||"";avisoModal.style.display="flex";avisoOk.onclick=()=>{avisoModal.style.display="none";avisoOk.onclick=null;setTimeout(()=>rolarParaPendencia(el),80);resolve()}})}
+function srcParaDataURL(src){return new Promise((resolve,reject)=>{if(!src)resolve("");else if(src.startsWith("data:"))resolve(src);else fetch(src).then(r=>r.blob()).then(blob=>{const reader=new FileReader();reader.onerror=()=>reject(new Error("Falha ao carregar foto."));reader.onloadend=()=>resolve(reader.result);reader.readAsDataURL(blob)}).catch(reject)})}
+function compactarImagemSrc(src,maxW=APP.FOTO_AUDITORIA_MAX_WIDTH||520,qualidade=APP.FOTO_AUDITORIA_QUALIDADE||0.42){return new Promise(async(resolve)=>{try{const data=await srcParaDataURL(src),img=new Image();img.onload=()=>{const ratio=img.height/img.width||1,w=Math.min(maxW,img.width||maxW),canvas=document.createElement("canvas");canvas.width=w;canvas.height=Math.round(w*ratio);canvas.getContext("2d").drawImage(img,0,0,canvas.width,canvas.height);resolve(canvas.toDataURL("image/jpeg",qualidade).split(",")[1]||"")};img.onerror=()=>resolve("");img.src=data}catch(e){resolve("")}})}
+async function fotosAuditoriaJson(){const fotos=[];for(let i=0;i<checklist.tarefas.length;i++){const img=document.getElementById("foto"+i);if(!img)continue;const base64=await compactarImagemSrc(img.src);if(base64)fotos.push({index:i+1,tarefa:checklist.tarefas[i],obs:document.getElementById("obs"+i)?.value||"",base64})}return JSON.stringify(fotos)}
+async function fotosAuditoriaLista(){try{return JSON.parse(await fotosAuditoriaJson())}catch(e){return[]}}
+async function marcarEnvioPendenteOnline(meta){const r=await jsonpRetry("marcarEnvioPendente",meta,1,9000);if(r?.status!=="ok")throw new Error(r?.mensagem||"Não foi possível registrar o envio pendente.");return r}
+async function enfileirarArquivosChecklist(meta,base64,fotos){
+  await enfileirarArquivoEnvio({...meta,id:`${idExec}_00_pdf`,ordem:0,acao:"uploadArquivoChecklist",tipo:"pdf",base64,mainApiUrl:APP.API_URL});
+  for(const f of fotos)await enfileirarArquivoEnvio({...meta,id:`${idExec}_${String(f.index).padStart(2,"0")}_foto`,ordem:f.index,acao:"uploadArquivoChecklist",tipo:"foto",index:f.index,tarefa:f.tarefa,base64:f.base64,mainApiUrl:APP.API_URL});
+  const manifesto={...meta,fotos:fotos.map(f=>({index:f.index,tarefa:f.tarefa,obs:f.obs}))};
+  await enfileirarArquivoEnvio({...meta,id:`${idExec}_99_manifesto`,ordem:999,acao:"uploadArquivoChecklist",tipo:"manifesto",manifestoJson:JSON.stringify(manifesto),mainApiUrl:APP.API_URL});
+}
+async function gerarPDF(){const{jsPDF}=window.jspdf;const pdf=new jsPDF("p","mm","a4");let y=14;pdf.setFillColor(214,0,0);pdf.rect(0,0,210,24,"F");pdf.setTextColor(255,255,255);pdf.setFontSize(16);pdf.text("CHECKLIST CONFIANÇA",10,10);pdf.setFontSize(11);pdf.text(checklist.nome,10,18);y=34;pdf.setTextColor(0,0,0);pdf.setFontSize(10);y=addWrapped(pdf,`Responsável: ${usuario.nome} | Login: ${usuario.login}`,10,y,185,5);y=addWrapped(pdf,`Data: ${dataBR()} | Início: ${horaBR(inicio)} | Término: ${horaBR()}`,10,y+1,185,5);y=addWrapped(pdf,`ID execução: ${idExec}`,10,y+1,185,5);y+=4;for(let i=0;i<checklist.tarefas.length;i++){const t=checklist.tarefas[i];y=ensurePage(pdf,y,70);pdf.setFillColor(245,245,245);pdf.roundedRect(8,y-5,194,10,2,2,"F");pdf.setTextColor(0,0,0);pdf.setFontSize(11);y=addWrapped(pdf,`${i+1}. ${t}`,10,y+1,185,5);const obs=document.getElementById("obs"+i).value||"Sem observações";pdf.setFontSize(9);pdf.setTextColor(80,80,80);y=addWrapped(pdf,`Observação: ${obs}`,10,y+2,185,4.5);const img=document.getElementById("foto"+i);if(img){y=ensurePage(pdf,y,45);try{pdf.addImage(await srcParaDataURL(img.src),"JPEG",10,y+2,55,42)}catch(e){}y+=48}else y+=4}return pdf.output("blob")}
+function payloadCancelamento(motivo="saiu"){return{acao:"cancelarExecucao",idExecucao:idExec,login:usuario.login,nomeUsuario:usuario.nome,idChecklist:checklist?.id||id,nomeChecklist:checklist?.nome||"",detalhe:motivo}}
+function liberarExecucaoAberta(motivo="saiu"){if(execucaoFinalizando||execucaoLiberada||!idExec)return;const ex=getExecLocal(idExec);if(ex&&["finalizado","aguardando_envio"].includes(ex.status))return;execucaoLiberada=true;removeExecLocal(idExec);limparRascunho();try{navigator.sendBeacon?.(APP.API_URL,new URLSearchParams(payloadCancelamento(motivo)))}catch(e){}postAPI(payloadCancelamento(motivo)).catch(()=>{})}
+async function confirmarSaidaChecklist(){if(execucaoFinalizando)return;const sair=await confirmarAcao({titulo:"Checklist em andamento",texto:"Você está executando este checklist. Use Continuar para manter a tela aberta. Se cancelar, a execução será liberada e o rascunho será apagado.",confirmar:"Cancelar execução",cancelar:"Continuar",perigo:true});if(!sair)return;saidaPermitida=true;liberarExecucaoAberta("cancelou_voltar");location.href="painel.html"}
+async function cancelarExecucao(){if(!await confirmarAcao({titulo:"Cancelar execução",texto:"Cancelar esta execução e liberar para outro colaborador?",confirmar:"Cancelar execução",perigo:true}))return;saidaPermitida=true;liberarExecucaoAberta("cancelou");location.href="painel.html"}
+async function finalizar(){
+  for(let i=0;i<checklist.tarefas.length;i++){
+    const task=document.getElementById("task"+i);
+    if(!document.getElementById("c"+i).checked){await mostrarAviso("Atividade pendente","Falta marcar a atividade:\n"+checklist.tarefas[i],task);return}
+    if(!document.getElementById("foto"+i)){await mostrarAviso("Foto pendente","Falta tirar foto na atividade:\n"+checklist.tarefas[i],task);return}
+  }
+  const st=statusExecucao(checklist,getExecLocal(idExec));
+  if(st==="expirado"){await mostrarAviso("Checklist expirado","Não é mais possível finalizar este checklist.");location.href="painel.html";return}
+  execucaoFinalizando=true;
+  fim.innerText=horaBR();
+  abrirProgresso();
+  try{
+    atualizarProgresso(12,"Gerando PDF","Montando o arquivo com tarefas, observações e fotos...");
+    const blob=await gerarPDF();
+    atualizarProgresso(45,"Preparando envio","Convertendo PDF para envio ao Drive...");
+    const base64=await new Promise((resolve,reject)=>{const reader=new FileReader();const timer=setTimeout(()=>reject(new Error("Tempo esgotado ao preparar o PDF.")),12000);reader.onerror=()=>{clearTimeout(timer);reject(new Error("Falha ao preparar o PDF."))};reader.onloadend=()=>{clearTimeout(timer);resolve(String(reader.result||"").split(",")[1]||"")};reader.readAsDataURL(blob)});
+    const nome=nomePdf(checklist),turno=getExecLocal(idExec)?.turno||localStorage.getItem("turnoSelecionado")||"";
+    const meta={idExecucao:idExec,data:hojeISO(),idChecklist:checklist.id,nomeChecklist:checklist.nome,horario:checklist.horario,horarioFim:checklist.horarioFim,login:usuario.login,nomeUsuario:usuario.nome,turno,nomeArquivo:nome};
+    atualizarProgresso(62,"Atualizando painéis","Registrando envio pendente na nuvem...");
+    await marcarEnvioPendenteOnline(meta);
+    atualizarProgresso(78,"Salvando envio","Guardando PDF e fotos para envio em segundo plano...");
+    const fotos=await fotosAuditoriaLista();
+    await enfileirarArquivosChecklist(meta,base64,fotos);
+    limparRascunho();
+    setExecLocal(idExec,{...meta,status:"aguardando_envio",envioSegundoPlano:true});
+    processarFila().catch(()=>{});
+    concluirEnvioEVoltar("Checklist salvo","O PDF será enviado ao Drive em segundo plano. A tela já está liberada.");
+  }catch(e){
+    await mostrarAviso("Falha ao finalizar",e.message||"Não foi possível gerar ou enviar o PDF.");
+    clearInterval(envioTimer);
+    clearTimeout(envioHardTimer);
+    envioModal.style.display="none";
+    execucaoFinalizando=false;
+  }
+}
+window.addEventListener("pagehide",()=>{if(saidaPermitida||execucaoFinalizando)return;salvarRascunho();liberarExecucaoAberta("saiu_da_pagina")});
+window.addEventListener("beforeunload",e=>{if(saidaPermitida||execucaoFinalizando)return;salvarRascunho();e.preventDefault();e.returnValue=""});
+iniciar();
+</script></body></html>
+
+

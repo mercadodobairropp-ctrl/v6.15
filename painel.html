@@ -1,0 +1,296 @@
+﻿<!DOCTYPE html><html lang="pt-br"><head><meta charset="UTF-8"><meta name="viewport" content="width=device-width, initial-scale=1.0"><title>Painel Operacional v6.15</title><link rel="manifest" href="manifest.json"><link rel="icon" href="icon-192.png"><link rel="stylesheet" href="styles.css?v=6.15-device-20260623"></head><body>
+<div class="container"><div class="topbar"><div class="logoArea"><img src="icon-512.png" class="logo"><div><h1 id="titulo">Olá,</h1><div class="sub">Painel Operacional v6.15</div><div class="topActions"><button class="secondary" onclick="atualizarManual()">Atualizar</button><button class="secondary" onclick="logout()">Sair</button></div></div></div></div><div id="adminArea"></div><div id="operadorArea"></div><div class="footerStatus" id="footerStatus">v6.15</div></div>
+<div class="modal" id="progressoModal"><div class="modalContent progressModal"><h2 id="progressoTitulo">Processando</h2><p id="progressoTexto">Aguarde...</p><div class="progressTrack"><div id="progressoBarra" class="progressBar" style="width:0%"></div></div><div id="progressoPct" class="progressPct">0%</div></div></div>
+<script src="config.js?v=6.15-device-20260623"></script><script src="app.js?v=6.15-device-20260623"></script><script>
+const usuario=exigirLogin();let checklistsCarregados=[],checklistsTodos=[],turnosCarregados=[],empresasCarregadas=[],execucoes=[],secaoAberta=null,recargaVaziaEmAndamento=false,recargaVaziaTentativas=0,baseOnlineOk=false,erroBaseOnline="";titulo.innerText=`Olá ${usuario.nome || "usuário"},`;
+let progressoTimer=null,progressoValor=0;
+function atualizarProgresso(v,titulo,texto){progressoValor=Math.max(progressoValor,Math.min(100,Math.round(v)));progressoBarra.style.width=progressoValor+"%";progressoPct.innerText=progressoValor+"%";if(titulo)progressoTitulo.innerText=titulo;if(texto)progressoTexto.innerText=texto}
+function abrirProgresso(titulo,texto){clearInterval(progressoTimer);progressoModal.style.display="flex";progressoValor=0;atualizarProgresso(0,titulo||"Processando",texto||"Aguarde...");progressoTimer=setInterval(()=>{if(progressoValor<88)atualizarProgresso(progressoValor+2)},350)}
+function concluirProgresso(titulo,texto,cb){clearInterval(progressoTimer);atualizarProgresso(100,titulo,texto);setTimeout(()=>{progressoModal.style.display="none";if(cb)cb()},650)}
+function chaveTurnoUsuario(){return `turnoSelecionado_${usuario.login||"anon"}`}
+function getTurnoSalvo(){return localStorage.getItem(chaveTurnoUsuario())||localStorage.getItem("turnoSelecionado")||""}
+function setTurnoSalvo(v){if(v){localStorage.setItem(chaveTurnoUsuario(),v);localStorage.setItem("turnoSelecionado",v)}else limparTurnoSalvo()}
+function limparTurnoSalvo(){localStorage.removeItem(chaveTurnoUsuario());localStorage.removeItem("turnoSelecionado")}
+function logout(){limparTurnoSalvo();localStorage.removeItem("usuarioLogado");location.href="login.html"}
+function toggleSecao(nome,fn){if(secaoAberta===nome){secaoAberta=null;adminConteudo.innerHTML="";return}secaoAberta=nome;fn()}
+async function carregarBase(force=false,forte=false){let pacote;try{const emp=empresaDispositivo();if(usuario.tipo!=="admin"&&emp){pacote=await carregarOperacionalOnline(usuario.login,emp,hojeISO(),force||forte)}else{pacote=forte?await sincronizarBaseCompleta(hojeISO(),hojeISO()):await carregarPacoteOnline(hojeISO(),hojeISO(),force);if(!Mem.usuarios&&navigator.onLine){try{await carregarUsuariosOnline(true)}catch(e){}}}baseOnlineOk=true;erroBaseOnline=""}catch(e){baseOnlineOk=false;erroBaseOnline=e.message||"Não foi possível carregar a base online.";throw e}const turnos=pacote.turnos||[],empresas=pacote.empresas||[],todos=pacote.checklists||[],execs=pacote.execucoes||[];turnosCarregados=turnos.sort((a,b)=>ordenarTexto(a.empresaId,b.empresaId)||ordenarTexto(a.nome,b.nome));empresasCarregadas=empresas.sort((a,b)=>ordenarTexto(a.nome,b.nome));checklistsTodos=todos.map(normalizarChecklist).sort(ordenarChecklistsBase);checklistsCarregados=checklistsTodos.filter(c=>c.ativo!=="nao");execucoes=execs;sincronizarUsuarioLogado();marcarSync(pacote.sync?.servidorEm)}
+function sincronizarUsuarioLogado(){const lista=Mem.usuarios||listaLocal("usuariosSistema",[]),atual=lista.find(u=>normalizarLogin(u.login)===usuario.login);if(!atual)return;const novo=normalizarUsuario(atual);["nome","tipo","turnosPermitidos","empresasPermitidas"].forEach(k=>usuario[k]=novo[k]);localStorage.setItem("usuarioLogado",JSON.stringify(usuario));titulo.innerText=`Olá ${usuario.nome || "usuário"},`}
+async function atualizarManual(){abrirProgresso("Atualizando dados","Buscando a base online completa...");try{await carregarBase(true,true);if(usuario.tipo==="admin")renderAdmin();else renderOperador();atualizarFooter();concluirProgresso("Dados atualizados","Base online sincronizada com sucesso.")}catch(e){progressoModal.style.display="none";alert("Não foi possível atualizar a base online agora. Verifique a conexão.")}}
+function sincronizarDepois(renderFn=null){setTimeout(async()=>{try{await carregarBase(true);atualizarFooter();if(renderFn)renderFn()}catch(e){}},1800)}
+function salvarLocal(key,dados){localStorage.setItem(key,JSON.stringify(dados))}
+function upsertItem(lista,key,obj){const i=lista.findIndex(x=>String(x[key])===String(obj[key]));if(i>=0)lista[i]={...lista[i],...obj};else lista.push(obj)}
+function atualizarChecklistsLocais(){checklistsTodos=checklistsTodos.map(normalizarChecklist).sort(ordenarChecklistsBase);checklistsCarregados=checklistsTodos.filter(c=>c.ativo!=="nao");salvarLocal("checklistsSistema",checklistsTodos);Mem.checklists=checklistsTodos;Mem.last.checklists=Date.now()}
+function enviarSegundoPlano(data){postAPI(data).catch(()=>{})}
+function nomeTurno(id){return turnosCarregados.find(t=>t.id===id)?.nome||id}
+function nomeEmpresa(id){return empresasCarregadas.find(e=>e.id===id)?.nome||id||"Sem empresa"}
+function empresaDispositivo(){return localStorage.getItem("empresaDispositivo")||""}
+function empresaSelecionadaValida(){const id=empresaDispositivo();return !id||empresasCarregadas.some(e=>e.id===id)}
+function checkEmpresaDispositivo(c){const emp=empresaDispositivo();if(!c.empresaId)return false;if(!emp)return usuario?.tipo==="admin";return c.empresaId===emp}
+function empresasPermitidasUsuario(){return usuario.tipo==="admin"?empresasCarregadas.map(e=>e.id):parseLista(usuario.empresasPermitidas||"").filter(id=>empresasCarregadas.some(e=>e.id===id))}
+function limparEmpresaDispositivoInvalida(){}
+function empresaEscopoAtividades(){return ""}
+function slugId(v){return String(v||"").normalize("NFD").replace(/[\u0300-\u036f]/g,"").toLowerCase().replace(/[^a-z0-9]+/g,"").trim()}
+function turnoIdEmpresa(empresa,nome){return `${slugId(empresa?.nome||empresa?.id)}_${slugId(nome)}`}
+function turnosDaEmpresa(id){const novos=turnosCarregados.filter(t=>t.empresaId===id).map(t=>t.id);if(novos.length)return novos;const e=empresasCarregadas.find(x=>x.id===id);return e?e.turnos:[]}
+function turnosObjDaEmpresa(id){const ids=turnosDaEmpresa(id);return turnosCarregados.filter(t=>ids.includes(t.id))}
+function execOnline(id){return execucoes.find(e=>e.idExecucao===id)}
+function execCombinada(c){const id=execId(c),online=execOnline(id),local=getExecLocal(id);if(local?.data&&local.data!==hojeISO()){removeExecLocal(id);return online||null}if(online)return online;if(local?.status==="executando"&&local.inicioISO&&Date.now()-new Date(local.inicioISO).getTime()>8*60*60*1000){removeExecLocal(id);return null}return local}
+function statusCombinado(c){const ex=execCombinada(c);return{idExec:execId(c),exec:ex,status:statusExecucao(c,ex)}}
+function renderAdmin(){if(usuario.tipo!=="admin"){renderOperador();return}adminArea.innerHTML=`<div class="card"><h2>Painel Gerencial</h2><div class="grid two"><button onclick="toggleSecao('dispositivo',mostrarDispositivo)">Empresa do dispositivo</button><button onclick="toggleSecao('diagnostico',mostrarDiagnostico)">Diagnóstico do dispositivo</button><button onclick="toggleSecao('usuarios',mostrarUsuarios)">Usuários</button><button onclick="toggleSecao('empresas',mostrarEmpresas)">Empresas e turnos</button><button onclick="toggleSecao('novo',()=>mostrarNovoChecklist())">+ Novo checklist</button><button onclick="toggleSecao('existentes',mostrarExistentes)">Checklists existentes</button><button onclick="toggleSecao('relatorio',mostrarRelatorio)">Relatórios</button><button onclick="toggleSecao('todos',mostrarTodos)">Visualizar todos hoje</button></div><div id="adminConteudo"></div></div>`;operadorArea.innerHTML=""}
+function mostrarDispositivo(){const atual=empresaDispositivo();adminConteudo.innerHTML=`<h3>Empresa deste dispositivo</h3><div class="card"><select id="empresaDispositivoAdmin"><option value="">Sem empresa definida</option>${empresasCarregadas.map(e=>`<option value="${e.id}" ${atual===e.id?"selected":""}>${e.nome}</option>`).join("")}</select><p class="small">Após salvar, este aparelho mostrará automaticamente apenas atividades da empresa selecionada no painel operacional e no monitor de alertas. O painel gerencial continuará com filtros livres por empresa.</p><button onclick="salvarEmpresaDispositivoAdmin()">Salvar</button><div id="empresaDispositivoStatus" class="small"></div></div>`}
+async function salvarEmpresaDispositivoAdmin(){await salvarEmpresaDispositivoPersistente(empresaDispositivoAdmin.value);if(window.empresaDispositivoStatus)empresaDispositivoStatus.innerText="Empresa deste dispositivo salva com backup local reforçado."}
+function linhaDiag(nome,status,detalhe=""){const cls=status==="ok"?"green":status==="alerta"?"yellow":"red";const txt=status==="ok"?"OK":status==="alerta"?"Atenção":"Erro";return `<div class="tableItem"><b>${nome}</b> <span class="badge ${cls}">${txt}</span>${detalhe?`<br><span class="small">${detalhe}</span>`:""}</div>`}
+function parseDetalheLog(s=""){const o={};String(s||"").split(";").forEach(p=>{const i=p.indexOf("=");if(i>0)o[p.slice(0,i).trim()]=p.slice(i+1).trim()});return o}
+function motivoChecklistsUsuario(u,empresaId){const dia=diaSemanaAtual();if(!empresaId)return"Empresa do dispositivo não definida.";if(!u)return"Usuário não encontrado na base atual.";if(!usuarioPodeVerEmpresa(u,empresaId))return"Usuário não tem acesso à empresa deste dispositivo.";const turnosUser=parseLista(u.turnosPermitidos||"");if(!turnosUser.length)return"Usuário não tem turnos liberados.";const checksDia=checklistsCarregados.filter(c=>c.ativo!=="nao"&&(!c.dias.length||c.dias.includes(dia)));const checksEmpresa=checksDia.filter(c=>c.empresaId===empresaId);if(!checksEmpresa.length)return"Não há checklists ativos hoje para esta empresa.";const checksTurnos=checksEmpresa.filter(c=>c.turnos.some(t=>turnosUser.includes(t)||turnosUser.includes("todos")));if(!checksTurnos.length)return"Há checklists na empresa, mas nenhum nos turnos liberados para o usuário.";return`OK: ${checksTurnos.length} checklist(s) deveriam aparecer nos turnos liberados.`}
+function htmlLoginsDia(logs=[]){if(!logs.length)return linhaDiag("Logins de hoje","alerta","Nenhum login registrado hoje ainda.");const usuarios=Mem.usuarios||listaLocal("usuariosSistema",[]);return `<h3>Logins de hoje</h3>${logs.slice(-25).reverse().map(l=>{const d=new Date(l.dataHora),hora=isNaN(d.getTime())?String(l.dataHora||"").slice(11,16):horaBR(d),det=parseDetalheLog(l.detalhe),u=usuarios.find(x=>normalizarLogin(x.login)===normalizarLogin(l.login)),emp=det.empresa||empresaDispositivo(),motivo=l.tipo==="login_ok"?motivoChecklistsUsuario(u,emp):(det.motivo||"login bloqueado");return `<div class="tableItem"><b>${hora} - ${l.nomeUsuario||nomePorLogin(l.login)}</b> <span class="badge ${l.tipo==="login_ok"?"green":"red"}">${l.tipo}</span><br><span class="small">Login: ${l.login||"-"}<br>Empresa: ${emp?nomeEmpresa(emp)+" ("+emp+")":"não definida"}<br>Empresas do usuário: ${u?parseLista(u.empresasPermitidas).map(nomeEmpresa).join(", ")||"nenhuma":det.empresasUsuario||"-"}<br>Turnos do usuário: ${u?parseLista(u.turnosPermitidos).map(nomeTurno).join(", ")||"nenhum":det.turnosUsuario||"-"}<br>Diagnóstico: ${motivo}</span></div>`}).join("")}`}
+async function testarCameraDiag(){if(!navigator.mediaDevices?.getUserMedia)return {status:"erro",detalhe:"Navegador não oferece acesso à câmera."};let s=null;try{s=await navigator.mediaDevices.getUserMedia({video:true,audio:false});return {status:"ok",detalhe:"Permissão de câmera disponível."}}catch(e){return {status:"alerta",detalhe:"Câmera bloqueada ou indisponível neste momento."}}finally{try{s?.getTracks().forEach(t=>t.stop())}catch(e){}}}
+async function diagnosticoArmazenamento(){try{const est=await navigator.storage?.estimate?.();if(!est)return {status:"alerta",detalhe:"Navegador não informou a cota de armazenamento."};const usado=Math.round((est.usage||0)/1024/1024),total=Math.round((est.quota||0)/1024/1024),pct=est.quota?Math.round((est.usage/est.quota)*100):0,persistente=await navigator.storage?.persisted?.(),backup=await lerConfigDispositivo("empresaDispositivo");return {status:pct>85?"alerta":"ok",detalhe:`Uso aproximado: ${usado} MB de ${total} MB (${pct}%). Persistente: ${persistente?"sim":"não"}. Backup empresa: ${backup||"não gravado"}.`}}catch(e){return {status:"alerta",detalhe:"Não foi possível ler o armazenamento."}}}
+async function diagnosticoCacheApp(){try{const regs="serviceWorker"in navigator?await navigator.serviceWorker.getRegistrations():[],keys="caches"in window?await caches.keys():[],ctrl=!!navigator.serviceWorker?.controller,local=localStorage.getItem("appVersaoDados")||"não gravada";return {status:(ctrl||regs.length)?"ok":"alerta",detalhe:`Service Worker: ${ctrl?"ativo":"registrado sem controle imediato"} (${regs.length}). Caches: ${keys.length?keys.join(", "):"nenhum"}. Versão local: ${local}.`}}catch(e){return {status:"alerta",detalhe:"Não foi possível ler Service Worker/cache."}}}
+async function forcarReloadControlado(novaVersao){try{if("caches"in window){const keys=await caches.keys();await Promise.all(keys.map(k=>caches.delete(k)))}}catch(e){}try{if("serviceWorker"in navigator){const regs=await navigator.serviceWorker.getRegistrations();await Promise.all(regs.map(r=>r.unregister()))}}catch(e){}localStorage.setItem("appVersaoDados",novaVersao||APP.versao);location.reload()}
+function verificarVersaoServidor(info){const v=info?.versao||"";if(!v||v===APP.versao)return linhaDiag("Versão servidor/app","ok",`Servidor ${v||"sem versão"} e app ${APP.versao}.`);const chave=`reloadVersao_${v}_${APP.versao}`;if(!localStorage.getItem(chave)){localStorage.setItem(chave,"1");setTimeout(()=>forcarReloadControlado(v),1200);return linhaDiag("Versão servidor/app","alerta",`Servidor ${v}, app ${APP.versao}. Limpando cache e recarregando uma vez.`)}return linhaDiag("Versão servidor/app","alerta",`Servidor ${v}, app ${APP.versao}. O cache já foi limpo uma vez neste aparelho.`)}
+async function mostrarDiagnostico(){adminConteudo.innerHTML='<h3>Diagnóstico do dispositivo</h3><div class="card">Executando testes...</div>';const linhas=[];const emp=empresaDispositivo();linhas.push(linhaDiag("Versão do app","ok","Painel Operacional v6.15"));linhas.push(linhaDiag("Internet",navigator.onLine?"ok":"erro",navigator.onLine?"O navegador informa conexão ativa.":"O navegador informa offline."));linhas.push(linhaDiag("Empresa deste dispositivo",emp?"ok":"alerta",emp?`${nomeEmpresa(emp)} (${emp})`:"Nenhuma empresa definida neste aparelho."));linhas.push(linhaDiag("Usuário logado",usuario?.login?"ok":"erro",`${usuario.nome||""} (${usuario.login||"sem login"}) - ${usuario.tipo||""}`));linhas.push(linhaDiag("Acesso do usuário à empresa",!emp?"alerta":usuarioPodeVerEmpresa(usuario,emp)?"ok":"erro",!emp?"Defina a empresa do dispositivo.":usuarioPodeVerEmpresa(usuario,emp)?"Usuário possui acesso à empresa deste aparelho.":"Usuário não possui acesso à empresa deste aparelho."));try{const info=await jsonpRetry("getSyncInfo",{},1,12000);linhas.push(linhaDiag("Apps Script",info?.status==="ok"?"ok":"alerta",info?.versao?`Servidor ${info.versao}`:(info?.mensagem||"Servidor respondeu.")));linhas.push(verificarVersaoServidor(info))}catch(e){linhas.push(linhaDiag("Apps Script","erro",e.message||"Sem resposta do servidor."))}try{await carregarBase(true,true);linhas.push(linhaDiag("Base online","ok",`Empresas: ${empresasCarregadas.length}. Turnos: ${turnosCarregados.length}. Checklists ativos: ${checklistsCarregados.length}. Execuções hoje: ${execucoes.length}.`))}catch(e){linhas.push(linhaDiag("Base online","erro",e.message||"Não foi possível carregar a base online."))}const turnosDisp=usuario.tipo==="admin"?turnosCarregados:turnosComChecklistHoje();linhas.push(linhaDiag("Turnos disponíveis neste aparelho",turnosDisp.length?"ok":"alerta",turnosDisp.length?turnosDisp.map(t=>t.nome).join(", "):"Nenhum turno disponível para usuário/empresa/checklists de hoje."));const arm=await diagnosticoArmazenamento();linhas.push(linhaDiag("Armazenamento do app",arm.status,arm.detalhe));const cache=await diagnosticoCacheApp();linhas.push(linhaDiag("Cache e Service Worker",cache.status,cache.detalhe));const cam=await testarCameraDiag();linhas.push(linhaDiag("Câmera",cam.status,cam.detalhe));let logsHtml="";try{const r=await jsonpRetry("getLogs",{inicio:hojeISO(),fim:hojeISO(),tipo:"login"},1,12000);logsHtml=htmlLoginsDia(r?.logs||[])}catch(e){logsHtml=linhaDiag("Logins de hoje","erro","Não foi possível buscar os logs de login.")}adminConteudo.innerHTML=`<h3>Diagnóstico do dispositivo</h3><div class="grid two"><button onclick="mostrarDiagnostico()">Rodar diagnóstico</button><button class="secondary" onclick="limparArmazenamentoPesado();mostrarDiagnostico()">Limpar dados antigos</button></div>${linhas.join("")}${logsHtml}`}
+function turnosComChecklistHoje(){const dia=diaSemanaAtual(),ids=new Set();checklistsCarregados.forEach(c=>{if(!checkEmpresaDispositivo(c)||!usuarioPodeVerEmpresa(usuario,c.empresaId))return;if(c.dias.length&&!c.dias.includes(dia))return;c.turnos.forEach(t=>ids.add(t))});return turnosCarregados.filter(t=>ids.has(t.id)&&usuarioPodeVerTurno(usuario,t.id))}
+function renderOperador(){limparEmpresaDispositivoInvalida();adminArea.innerHTML="";if(!baseOnlineOk){operadorArea.innerHTML=`<div class="card red"><h2>Base online indisponível</h2><p>Não vou mostrar checklists antigos como se fossem válidos.</p><p class="small">${erroBaseOnline||"Verifique a conexão e tente atualizar."}</p><button onclick="atualizarManual()">Tentar novamente</button></div>`;return}const emp=empresaDispositivo();if(!emp){operadorArea.innerHTML='<div class="card yellow"><h2>Empresa deste dispositivo não definida</h2><p>Entre no painel gerencial com um administrador e salve a empresa deste aparelho.</p></div>';return}if(!usuarioPodeVerEmpresa(usuario,emp)){operadorArea.innerHTML=`<div class="card red"><h2>Empresa não liberada para usuário</h2><p>${usuario.nome} não tem acesso à empresa ${nomeEmpresa(emp)} neste dispositivo.</p><button onclick="logout()">Sair</button></div>`;return}const turnosDisponiveis=turnosComChecklistHoje();let selecionado=getTurnoSalvo();if(selecionado&&!turnosDisponiveis.some(t=>t.id===selecionado)){limparTurnoSalvo();selecionado=""}if(!selecionado&&turnosDisponiveis.length===1){selecionado=turnosDisponiveis[0].id;setTurnoSalvo(selecionado)}operadorArea.innerHTML=`<div class="card"><h2>Selecionar turno</h2><select id="turnoSelecionado" autocomplete="off" onchange="recargaVaziaTentativas=0;setTurnoSalvo(this.value);renderPainelOperador()"><option value="">Escolha o turno</option>${turnosDisponiveis.map(t=>`<option value="${t.id}">${t.nome}</option>`).join("")}</select></div><div class="card"><h2>Pendências</h2><div id="pendencias">Selecione um turno.</div></div><div id="lista"></div>`;turnoSelecionado.value=selecionado;setTimeout(renderPainelOperador,0)}
+function cardHTML(c,o,admin=false){const ex=o.exec,st=o.status,idE=o.idExec,classe=classeStatus(st),texto=textoStatus(st,c,ex);const bloqueado=["aguardando","expirado","finalizado","aguardando_envio"].includes(st)||(ex&&ex.status==="executando"&&ex.login!==usuario.login);const pdf=(admin&&ex?.urlPDF&&["finalizado","aguardando_envio"].includes(st))?`<a class="btn blue miniAction" target="_blank" href="${ex.urlPDF}">Abrir PDF</a>`:"";const reabrir=(usuario.tipo==="admin"&&["expirado","finalizado"].includes(st))?`<button class="yellow miniAction" onclick="reabrirExecucao('${idE}','${c.id}')">Reabrir +1h</button>`:"";const corpo=`<div><h2>${c.nome}</h2><div class="sub">${c.descricao}</div><span class="badge ${c.prioridade==='alta'?'red':c.prioridade==='media'?'yellow':'green'}">${c.prioridade.toUpperCase()}</span><span class="badge blue">${c.horario} até ${c.horarioFim}</span><span class="badge gray">Empresa: ${nomeEmpresa(c.empresaId)}</span><span class="badge gray">Turnos: ${c.turnos.map(nomeTurno).join(", ")}</span><p><b>Status:</b> ${texto}</p>${!admin?`<button ${bloqueado?'disabled':''} onclick="abrirChecklist('${c.id}')">Abrir checklist</button>`:""}</div>`;if(admin&&(pdf||reabrir))return `<div class="card ${classe} todayItem">${corpo}<div class="todayActions">${pdf}${reabrir}</div></div>`;return `<div class="card ${classe}">${corpo}</div>`}
+function diagnosticoOperador(turno){const dia=diaSemanaAtual(),emp=empresaDispositivo(),checksDia=checklistsCarregados.filter(c=>!c.dias.length||c.dias.includes(dia)),checksEmpresa=checksDia.filter(c=>!emp||c.empresaId===emp),checksTurno=checksEmpresa.filter(c=>c.turnos.includes(turno)),checksUsuario=checksTurno.filter(c=>checklistPermitidoUsuario(c,usuario,turno));const empTxt=emp?nomeEmpresa(emp):"não definida";const userEmp=empresasPermitidasUsuario().map(nomeEmpresa).join(", ")||"nenhuma";const userTurnos=parseLista(usuario.turnosPermitidos||"").map(nomeTurno).join(", ")||"nenhum";let motivo="";if(!emp)motivo="Empresa deste dispositivo não definida.";else if(!usuarioPodeVerEmpresa(usuario,emp))motivo=`Usuário sem acesso à empresa deste aparelho (${empTxt}).`;else if(!usuarioPodeVerTurno(usuario,turno))motivo=`Usuário sem acesso ao turno selecionado (${nomeTurno(turno)}).`;else if(!checksDia.length)motivo="Não há checklist ativo programado para hoje.";else if(!checksEmpresa.length)motivo=`Não há checklist de hoje para a empresa ${empTxt}.`;else if(!checksTurno.length)motivo=`Não há checklist de hoje no turno ${nomeTurno(turno)} para ${empTxt}.`;else if(!checksUsuario.length)motivo="Os checklists existem, mas não passaram nas permissões do usuário.";return `<div class="card gray"><b>Nenhum checklist apareceu para este usuário.</b><br>${motivo}<br><span class="small">Empresa do aparelho: ${empTxt}<br>Empresas do usuário: ${userEmp}<br>Turnos do usuário: ${userTurnos}<br>Checklists ativos hoje: ${checksDia.length} | na empresa: ${checksEmpresa.length} | no turno: ${checksTurno.length}</span><button class="secondary miniAction" onclick="atualizarManual()">Atualizar</button></div>`}
+function tentarRecarregarListaVazia(turno){if(recargaVaziaEmAndamento||recargaVaziaTentativas>=2)return;recargaVaziaEmAndamento=true;recargaVaziaTentativas++;setTimeout(async()=>{try{await carregarBase(true,true);renderOperador()}catch(e){}finally{recargaVaziaEmAndamento=false}},1200)}
+function renderPainelOperador(){const campo=document.getElementById("turnoSelecionado"),opcoes=campo?[...campo.options].map(o=>o.value).filter(Boolean):turnosComChecklistHoje().map(t=>t.id);let turno=(campo?.value||getTurnoSalvo()||"").trim();if(turno&&!opcoes.includes(turno)){limparTurnoSalvo();turno="";if(campo)campo.value=""}if(turno){setTurnoSalvo(turno);if(campo&&campo.value!==turno)campo.value=turno}if(!turno){recargaVaziaTentativas=0;pendencias.innerHTML="Selecione um turno.";lista.innerHTML='<div class="card gray">Selecione um turno.</div>';return}const dia=diaSemanaAtual();const cards=checklistsCarregados.filter(c=>checkEmpresaDispositivo(c)&&(!c.dias.length||c.dias.includes(dia))&&c.turnos.includes(turno)&&checklistPermitidoUsuario(c,usuario,turno)).map(c=>({checklist:c,...statusCombinado(c)})).sort(ordenarCards);if(!cards.length){pendencias.innerHTML="Nenhuma pendência encontrada para este filtro.";lista.innerHTML=diagnosticoOperador(turno);tentarRecarregarListaVazia(turno);return}recargaVaziaTentativas=0;const ps=[];lista.innerHTML=cards.map(o=>{if(["liberado","atrasado","critico","executando","reaberto","aguardando_envio"].includes(o.status))ps.push(`${o.checklist.nome} — ${textoStatus(o.status,o.checklist,o.exec)}`);return cardHTML(o.checklist,o)}).join("");pendencias.innerHTML=ps.length?ps.map(p=>"• "+p).join("<br>"):"✓ Nenhuma pendência."}
+function dispararAlertas(o){}
+async function abrirChecklist(id){
+  abrirProgresso("Abrindo checklist","Conferindo a liberação na nuvem...");
+  try{
+    await carregarBase(true,true);
+    const c=checklistsCarregados.find(x=>x.id===id);
+    if(!c)throw new Error("Checklist não encontrado na base online.");
+    const idE=execId(c),turnoAtual=(document.getElementById("turnoSelecionado")?.value||getTurnoSalvo()||"").trim();
+    if(!turnoAtual)throw new Error("Selecione um turno antes de abrir.");
+    if(!checkEmpresaDispositivo(c)||!usuarioPodeVerEmpresa(usuario,c.empresaId)||!usuarioPodeVerTurno(usuario,turnoAtual)||!c.turnos.includes(turnoAtual))throw new Error("Checklist não liberado para este usuário neste dispositivo.");
+    const exAtual=execOnline(idE)||null,st=statusExecucao(c,exAtual);
+    if(["finalizado","aguardando_envio"].includes(st))throw new Error("Este checklist não está disponível.");
+    if(exAtual?.status==="executando"&&exAtual.login&&exAtual.login!==usuario.login)throw new Error("Checklist já está em execução por outro usuário.");
+    if(["aguardando","expirado"].includes(st)&&exAtual?.status!=="reaberto")throw new Error("Este checklist não está disponível.");
+    setTurnoSalvo(turnoAtual);
+    const payload={acao:"iniciarExecucao",idExecucao:idE,data:hojeISO(),idChecklist:c.id,nomeChecklist:c.nome,horario:c.horario,horarioFim:c.horarioFim,login:usuario.login,nomeUsuario:usuario.nome,turno:turnoAtual};
+    const r=await iniciarExecucaoOnline(payload);
+    const execAberta={...payload,...(r.execucao||{}),status:"executando",nome:usuario.nome,inicioISO:new Date().toISOString()};
+    setExecLocal(idE,execAberta);
+    concluirProgresso("Checklist liberado","Abrindo a execução...");
+    setTimeout(()=>{location.href=`checklist.html?id=${encodeURIComponent(id)}&exec=${encodeURIComponent(idE)}`},250);
+  }catch(e){
+    progressoModal.style.display="none";
+    alert(e.resposta?.mensagem||e.message||"Não foi possível abrir este checklist.");
+    try{await carregarBase(true,true);renderOperador()}catch(_){}
+  }
+}
+async function reabrirExecucao(idE,idC){
+  if(!await confirmarAcao({titulo:"Reabrir checklist",texto:"Reabrir esta execução por mais 1 hora?",confirmar:"Reabrir +1h",perigo:false}))return;
+  abrirProgresso("Reabrindo checklist","Confirmando a reabertura na nuvem...");
+  try{
+    const r=await jsonpRetry("reabrirExecucao",{idExecucao:idE,idChecklist:idC,login:usuario.login,nomeUsuario:usuario.nome},2,18000);
+    if(r?.status!=="ok"||!r.execucao)throw new Error(r?.mensagem||"A nuvem não confirmou a reabertura.");
+    setExecLocal(idE,r.execucao);
+    upsertItem(execucoes,"idExecucao",r.execucao);
+    if(secaoAberta==="todos")mostrarTodos();
+    concluirProgresso("Checklist reaberto","Execução liberada por mais 1 hora.");
+    setTimeout(async()=>{try{await carregarBase(true,true);if(secaoAberta==="todos")mostrarTodos()}catch(e){}},900);
+  }catch(e){
+    clearInterval(progressoTimer);
+    progressoModal.style.display="none";
+    alert(e.message||"Não foi possível confirmar a reabertura. Verifique a conexão.");
+    try{await carregarBase(true,true);if(secaoAberta==="todos")mostrarTodos()}catch(_){}
+  }
+}
+
+function turnosPorEmpresasSelecionadas(empresasSel=[]){
+  const ids=[...new Set((empresasSel||[]).flatMap(id=>turnosDaEmpresa(id)))];
+  return turnosCarregados.filter(t=>t.id!=="gerencial"&&ids.includes(t.id));
+}
+function empresaDoTurno(t,empresasSel=[]){
+  if(t.empresaId)return t.empresaId;
+  const e=(empresasSel||[]).find(id=>turnosDaEmpresa(id).includes(t.id));
+  return e||"";
+}
+function empresasUsuarioSelecionadas(){return [...document.querySelectorAll(".usuarioEmpresaCheck:checked")].map(x=>x.value)}
+function atualizarTurnosUsuario(sel=null){document.querySelectorAll(".usuarioEmpresaCheck").forEach(ch=>{const box=document.getElementById(`turnosEmpresa_${ch.value}`);if(box)box.style.display=ch.checked?"grid":"none"});if(sel)document.querySelectorAll(".usuarioTurnoCheck").forEach(ch=>{ch.checked=sel.includes(ch.value)})}
+function turnosEmpresaUsuarioHTML(e,selTurnos=[]){const turnos=turnosObjDaEmpresa(e.id).filter(t=>t.id!=="gerencial");if(!turnos.length)return `<div class="small usuarioTurnosIndent">Nenhum turno cadastrado para esta empresa.</div>`;return `<div class="usuarioTurnosIndent" id="turnosEmpresa_${e.id}" style="display:none">${turnos.map(t=>`<label><input type="checkbox" class="usuarioTurnoCheck" value="${t.id}" ${selTurnos.includes(t.id)?"checked":""}> ${t.nome}</label>`).join("")}</div>`}
+function empresasCheckbox(sel=[],selTurnos=[]){return `<div class="usuarioEmpresaLista">${(empresasCarregadas||[]).map(e=>`<div class="usuarioEmpresaBloco"><label class="usuarioEmpresaLinha"><input type="checkbox" class="usuarioEmpresaCheck" value="${e.id}" ${sel.includes(e.id)?"checked":""} onchange="atualizarTurnosUsuario()"> ${e.nome}</label>${turnosEmpresaUsuarioHTML(e,selTurnos)}</div>`).join("")}</div><div class="small">Sem empresa ou turno marcado, o usuário não terá acesso operacional.</div>`}
+function idUsuarioDuplicado(login){const original=document.getElementById("uLogin")?.dataset.original||"";const id=normalizarLogin(login);return !!id&&id!==original&&(Mem.usuarios||JSON.parse(localStorage.getItem("usuariosSistema")||"[]")).some(u=>normalizarLogin(u.login)===id)}
+function validarIdUsuario(){const aviso=document.getElementById("uLoginAviso"),id=normalizarLogin(uLogin?.value||""),duplicado=idUsuarioDuplicado(id);if(aviso)aviso.innerHTML=duplicado?`Já existe um usuário com o login "${id}". Escolha outro login.`:"";return !duplicado}
+function linhasPermissaoUsuario(u){
+  const empSel=parseLista(u.empresasPermitidas||"");
+  const empIds=empSel;
+  const turnosSel=parseLista(u.turnosPermitidos||"");
+  if(!empIds.length)return `<div class="permissaoLinha"><b>Sem acesso</b><span>Nenhuma empresa liberada</span></div>`;
+  return empIds.map(id=>{
+    const turnos=turnosObjDaEmpresa(id).filter(t=>t.id!=="gerencial");
+    const liberados=turnos.filter(t=>turnosSel.includes(t.id));
+    const nomes=liberados.length?liberados.map(t=>t.nome).join(", "):"sem turnos liberados";
+    return `<div class="permissaoLinha"><b>${nomeEmpresa(id)}</b><span>${nomes}</span></div>`;
+  }).join("");
+}
+async function mostrarUsuarios(){adminConteudo.innerHTML="Carregando...";const us=await carregarUsuariosOnline(false);adminConteudo.innerHTML=`<h3>Usuários</h3><div class="usuarioForm"><input id="uLogin" placeholder="Login" data-original="" oninput="validarIdUsuario()"><div id="uLoginAviso" class="fieldWarning"></div><input id="uNome" placeholder="Nome"><input id="uSenha" placeholder="Senha"><select id="uTipo"><option value="operador">Operador</option><option value="admin">Admin</option></select></div><h3>Empresas permitidas</h3>${empresasCheckbox([],[])}<div class="saveUserRow"><button onclick="salvarUser()">Salvar usuário</button></div><div>${us.map(u=>`<div class="tableItem userItem"><div class="userHead"><div><b>${u.nome}</b><br><span class="small">Login: ${u.login} • Tipo: ${u.tipo}</span></div><button class="secondary miniAction" onclick="editarUsuarioAdmin(\`${u.login}\`)">Editar</button></div>${linhasPermissaoUsuario(u)}</div>`).join("")}</div>`;atualizarTurnosUsuario()}
+
+function editarUsuarioAdmin(login){
+  const users=JSON.parse(localStorage.getItem("usuariosSistema")||"[]");
+  const u=users.find(x=>normalizarLogin(x.login)===normalizarLogin(login));
+  if(!u)return;
+  uLogin.value=u.login||"";
+  uLogin.dataset.original=normalizarLogin(u.login||"");
+  uNome.value=u.nome||"";
+  uSenha.value=u.senha||"";
+  uTipo.value=u.tipo||"operador";
+  const permitidos=parseLista(u.turnosPermitidos||"");
+  const empresas=parseLista(u.empresasPermitidas||"");
+  document.querySelectorAll(".usuarioEmpresaCheck").forEach(ch=>{
+    ch.checked=empresas.includes(ch.value);
+  });
+  atualizarTurnosUsuario(permitidos);
+  validarIdUsuario();
+  window.scrollTo({top:0,behavior:"smooth"});
+}
+
+async function salvarUser(){const empresasSelecionadas=empresasUsuarioSelecionadas(),turnosValidos=turnosPorEmpresasSelecionadas(empresasSelecionadas).map(t=>t.id),turnosPermitidos=[...document.querySelectorAll(".usuarioTurnoCheck:checked")].map(x=>x.value).filter(id=>turnosValidos.includes(id)).join(","),empresasPermitidas=empresasSelecionadas.join(",");const u={login:normalizarLogin(uLogin.value.trim()),nome:uNome.value.trim(),senha:uSenha.value.trim(),tipo:uTipo.value,turnosPermitidos,empresasPermitidas};if(!u.login||!u.nome||!u.senha){alert("Preencha login, nome e senha.");return}if(!validarIdUsuario()){uLogin.focus();return}abrirProgresso("Salvando usuário","Atualizando a tela e sincronizando com a base...");Mem.usuarios=Mem.usuarios||JSON.parse(localStorage.getItem("usuariosSistema")||"[]");upsertItem(Mem.usuarios,"login",u);salvarLocal("usuariosSistema",Mem.usuarios);Mem.last.usuarios=Date.now();enviarSegundoPlano({...u,acao:"saveUser",atorLogin:usuario.login});concluirProgresso("Usuário salvo","Cadastro atualizado com sucesso.",()=>mostrarUsuarios());sincronizarDepois(()=>secaoAberta==="usuarios"&&mostrarUsuarios())}
+
+function idEmpresaDuplicado(id){const original=document.getElementById("eId")?.dataset.original||"";return !!id&&id!==original&&empresasCarregadas.some(e=>e.id===id)}
+function validarIdEmpresa(){const aviso=document.getElementById("eIdAviso"),id=eId?.value.trim()||"",duplicado=idEmpresaDuplicado(id);if(aviso)aviso.innerHTML=duplicado?`Já existe uma empresa com o ID "${id}". Escolha outro ID.`:"";return !duplicado}
+function mostrarEmpresas(selId=""){
+  adminConteudo.innerHTML=`<h3>Empresas e turnos</h3><div class="card"><h3>+ Criar / editar empresa</h3><input id="eId" placeholder="ID da empresa. Ex: matriz, filial01" data-original="" oninput="validarIdEmpresa()"><div id="eIdAviso" class="fieldWarning"></div><input id="eNome" placeholder="Nome da empresa"><div class="empresaBotaoCentro"><button class="compactAction" onclick="salvarEmpresaAdmin()">Salvar empresa</button></div></div><h3>Empresas existentes</h3><div id="listaEmpresasAdmin"></div>`;
+  listarEmpresasAdmin(selId);
+}
+function listarEmpresasAdmin(selId=""){
+  const empresas=empresasCarregadas||[];
+  if(!empresas.length){listaEmpresasAdmin.innerHTML="<p>Nenhuma empresa cadastrada.</p>";return}
+  const id=selId&&empresas.some(e=>e.id===selId)?selId:empresas[0].id;
+  const e=empresas.find(x=>x.id===id);
+  const turnos=turnosObjDaEmpresa(id).filter(t=>t.id!=="gerencial");
+  listaEmpresasAdmin.innerHTML=`<div class="empresaFiltroLinha"><label class="small" for="empresaAdminFiltro">Empresa</label><select id="empresaAdminFiltro" onchange="listarEmpresasAdmin(this.value)">${empresas.map(emp=>`<option value="${emp.id}" ${emp.id===id?"selected":""}>${emp.nome}</option>`).join("")}</select></div><div class="empresaActions"><button class="secondary compactAction" onclick="editarEmpresaAdmin('${id}')">Editar empresa</button><button class="red compactAction" onclick="excluirEmpresaSelecionada()">Excluir empresa</button></div><div class="card"><h3>+ Criar turno</h3><input id="turnoNome_${id}" placeholder="Nome do turno. Ex: 1º Manhã" oninput="validarTurnoEmpresa('${id}')"><div id="turnoAviso_${id}" class="fieldWarning"></div><div class="empresaBotaoCentro"><button class="secondary compactAction" onclick="salvarTurnoEmpresa('${id}')">Adicionar turno</button></div><h3>Turnos existentes</h3><div>${turnos.map(t=>`<div class="turnoItem"><div><b>${t.nome}</b><br><span class="small">ID automático: ${t.id}</span></div><button class="red miniAction" title="Excluir turno" onclick="excluirTurnoEmpresa('${t.id}','${t.nome}','${id}')">Excluir</button></div>`).join("")||"<p>Nenhum turno cadastrado para esta empresa.</p>"}</div></div>`;
+}
+function editarEmpresaAdmin(id){const e=empresasCarregadas.find(x=>x.id===id);if(!e)return;eId.value=e.id;eId.dataset.original=e.id;eNome.value=e.nome;validarIdEmpresa();window.scrollTo({top:0,behavior:"smooth"})}
+async function salvarEmpresaAdmin(){const id=eId.value.trim(),nome=eNome.value.trim();if(!id||!nome){alert("Preencha ID e nome da empresa.");return}if(!validarIdEmpresa()){eId.focus();return}abrirProgresso("Salvando empresa","Atualizando empresas...");const anterior=empresasCarregadas.find(e=>e.id===id);const turnosLegados=anterior?.turnos||[];const emp={id,nome,turnos:turnosLegados,ativo:"sim"};upsertItem(empresasCarregadas,"id",normalizarEmpresa(emp));salvarLocal("empresasSistema",empresasCarregadas);Mem.empresas=empresasCarregadas;Mem.last.empresas=Date.now();enviarSegundoPlano({acao:"saveEmpresa",id,nome,turnos:turnosLegados.join(","),ativo:"sim",login:usuario.login,nomeUsuario:usuario.nome});concluirProgresso("Empresa salva","Cadastro atualizado com sucesso.",()=>mostrarEmpresas(id));sincronizarDepois(()=>secaoAberta==="empresas"&&mostrarEmpresas(id))}
+async function excluirEmpresaAdmin(id){const e=empresasCarregadas.find(x=>x.id===id);if(!await confirmarAcao({titulo:"Excluir empresa",texto:"Confirma excluir \""+(e?.nome||id)+"\"?\n\nOs turnos desta empresa também serão removidos.",confirmar:"Excluir empresa",perigo:true}))return;abrirProgresso("Excluindo empresa","Atualizando a base...");const turnosRemover=turnosObjDaEmpresa(id).map(t=>t.id);empresasCarregadas=empresasCarregadas.filter(x=>x.id!==id);turnosCarregados=turnosCarregados.filter(t=>!turnosRemover.includes(t.id));salvarLocal("empresasSistema",empresasCarregadas);salvarLocal("turnosSistema",turnosCarregados);Mem.empresas=empresasCarregadas;Mem.turnos=turnosCarregados;Mem.last.empresas=Date.now();Mem.last.turnos=Date.now();enviarSegundoPlano({acao:"deleteEmpresa",id,login:usuario.login,nomeUsuario:usuario.nome});turnosRemover.forEach(tid=>enviarSegundoPlano({acao:"deleteTurno",id:tid,login:usuario.login,nomeUsuario:usuario.nome}));concluirProgresso("Empresa excluída","Empresa e turnos removidos com sucesso.",()=>mostrarEmpresas());sincronizarDepois(()=>secaoAberta==="empresas"&&mostrarEmpresas())}
+function excluirEmpresaSelecionada(){const id=document.getElementById("empresaAdminFiltro")?.value;if(id)excluirEmpresaAdmin(id)}
+function validarTurnoEmpresa(empresaId){
+  const empresa=empresasCarregadas.find(e=>e.id===empresaId),campo=document.getElementById(`turnoNome_${empresaId}`),aviso=document.getElementById(`turnoAviso_${empresaId}`);
+  const nome=campo?.value.trim()||"",id=turnoIdEmpresa(empresa,nome);
+  const duplicado=!!id&&turnosCarregados.some(t=>t.id===id);
+  if(aviso)aviso.innerHTML=duplicado?`Já existe um turno com o ID automático "${id}". Escolha outro nome para o turno.`:"";
+  return !duplicado;
+}
+async function salvarTurnoEmpresa(empresaId){
+  const empresa=empresasCarregadas.find(e=>e.id===empresaId);
+  const campo=document.getElementById(`turnoNome_${empresaId}`);
+  const nome=campo?.value.trim()||"";
+  const id=turnoIdEmpresa(empresa,nome);
+  if(!empresa||!nome||!id){alert("Informe o nome do turno.");return}
+  if(!validarTurnoEmpresa(empresaId)){campo?.focus();return}
+  abrirProgresso("Salvando turno","Vinculando o turno à empresa selecionada...");
+  const turno={id,nome,empresaId,ativo:"sim"};
+  upsertItem(turnosCarregados,"id",turno);
+  salvarLocal("turnosSistema",turnosCarregados);
+  Mem.turnos=turnosCarregados;Mem.last.turnos=Date.now();
+  enviarSegundoPlano({acao:"saveTurno",id,nome,empresaId,ativo:"sim",login:usuario.login,nomeUsuario:usuario.nome});
+  concluirProgresso("Turno salvo","Turno cadastrado dentro da empresa.",()=>mostrarEmpresas(empresaId));
+  sincronizarDepois(()=>secaoAberta==="empresas"&&mostrarEmpresas(empresaId));
+}
+async function excluirTurnoEmpresa(id,nome,empresaId){
+  if(id==="gerencial"){
+    alert("O turno Gerencial é protegido e não pode ser excluído.");
+    return;
+  }
+  if(!await confirmarAcao({titulo:"Excluir turno",texto:"Confirma excluir o turno \""+nome+"\"?\n\nAtenção: checklists que usam este turno podem deixar de aparecer para operadores.",confirmar:"Excluir turno",perigo:true}))return;
+  abrirProgresso("Excluindo turno","Removendo o turno desta empresa...");
+  turnosCarregados=turnosCarregados.filter(t=>t.id!==id);
+  const empresa=empresasCarregadas.find(e=>e.id===empresaId);
+  if(empresa)empresa.turnos=(empresa.turnos||[]).filter(t=>t!==id);
+  salvarLocal("turnosSistema",turnosCarregados);
+  salvarLocal("empresasSistema",empresasCarregadas);
+  Mem.turnos=turnosCarregados;Mem.last.turnos=Date.now();
+  enviarSegundoPlano({acao:"deleteTurno",id,login:usuario.login,nomeUsuario:usuario.nome});
+  concluirProgresso("Turno excluído","Turno removido com sucesso.",()=>mostrarEmpresas(empresaId));
+  sincronizarDepois(()=>secaoAberta==="empresas"&&mostrarEmpresas(empresaId));
+}
+
+function diasCheckbox(sel=[]){const dias=[["dom","Domingo"],["seg","Segunda"],["ter","Terça"],["qua","Quarta"],["qui","Quinta"],["sex","Sexta"],["sab","Sábado"]];return `<div class="checkGrid">${dias.map(d=>`<label><input type="checkbox" class="diaCheck" value="${d[0]}" ${sel.includes(d[0])?"checked":""}> ${d[1]}</label>`).join("")}</div>`}
+
+function turnosCheckbox(sel=[],empresaId=""){
+  const permitidos=turnosDaEmpresa(empresaId);
+  const lista = empresaId ? turnosCarregados.filter(t=>permitidos.includes(t.id)) : (turnosCarregados || []);
+  if(!lista.length)return `<p class="small">${empresaId?"Cadastre um turno dentro desta empresa antes de criar o checklist.":"Selecione uma empresa para listar os turnos."}</p>`;
+  return `<div class="checkGrid">${lista.map(t=>`
+    <label>
+      <input type="checkbox" class="turnoCheck" value="${t.id}" ${sel.includes(t.id)?"checked":""}>
+      ${t.nome}
+    </label>
+  `).join("")}</div>`;
+}
+
+function atualizarTurnosChecklist(){const selecionados=[...document.querySelectorAll(".turnoCheck:checked")].map(x=>x.value);turnosChecklistBox.innerHTML=turnosCheckbox(selecionados,cEmpresa.value)}
+function empresaSelect(idAtual=""){return `<select id="cEmpresa" class="checkFieldHalf" onchange="atualizarTurnosChecklist()"><option value="">Selecione a empresa</option>${empresasCarregadas.map(e=>`<option value="${e.id}" ${idAtual===e.id?"selected":""}>${e.nome}</option>`).join("")}</select>`}
+function idChecklistDuplicado(id){const original=document.getElementById("cId")?.dataset.original||"";return checklistsTodos.some(c=>c.id===id&&c.id!==original)}
+function validarIdChecklist(){const id=cId.value.trim(),aviso=document.getElementById("cIdAviso");const duplicado=id&&idChecklistDuplicado(id);if(aviso)aviso.innerHTML=duplicado?`Já existe um checklist com o ID "${id}". Escolha outro ID para criar.`:"";return !duplicado}
+function mostrarNovoChecklist(c=null){adminConteudo.innerHTML=`<h3>+ Novo / editar checklist</h3><input id="cId" class="checkFieldHalf" placeholder="ID único" value="${c?.id||""}" data-original="${c?.id||""}" oninput="validarIdChecklist()"><div id="cIdAviso" class="fieldWarning"></div><input id="cNome" class="checkFieldHalf" placeholder="Nome" value="${c?.nome||""}"><textarea id="cDesc" placeholder="Descrição">${c?.descricao||""}</textarea><h3>Empresa</h3>${empresaSelect(c?.empresaId||"")}<input id="cHorario" class="checkFieldQuarter" placeholder="Horário início. Ex: 21 ou 21:00" value="${c?.horario||""}"><input id="cHorarioFim" class="checkFieldQuarter" placeholder="Horário fim. Ex: 23 ou 23:59" value="${c?.horarioFim||""}"><h3>Turnos ativos</h3><div id="turnosChecklistBox">${turnosCheckbox(c?.turnos||[],c?.empresaId||"")}</div><h3>Dias ativos</h3>${diasCheckbox(c?.dias||[])}<select id="cPrioridade" class="checkFieldHalf"><option value="baixa">Baixa</option><option value="media">Média</option><option value="alta">Alta</option></select><select id="cAtivo" class="checkFieldHalf"><option value="sim">Ativo</option><option value="nao">Inativo</option></select><textarea id="cTarefas" placeholder="Uma tarefa por linha">${c?.tarefas?.join("\n")||""}</textarea><button onclick="salvarChecklistAdmin()">Salvar checklist</button>`;if(c){cPrioridade.value=c.prioridade;cAtivo.value=c.ativo||"sim"}validarIdChecklist()}
+async function salvarChecklistAdmin(){const dias=[...document.querySelectorAll(".diaCheck:checked")].map(x=>x.value).join(",");const turnos=[...document.querySelectorAll(".turnoCheck:checked")].map(x=>x.value).join(",");const payload={acao:"saveChecklist",id:cId.value.trim(),nome:cNome.value.trim(),descricao:cDesc.value.trim(),empresaId:cEmpresa.value,horario:normalizarHora(cHorario.value.trim()),horarioFim:normalizarHora(cHorarioFim.value.trim()),turnos,dias,prioridade:cPrioridade.value,responsaveisPermitidos:"",tarefas:cTarefas.value.trim(),ativo:cAtivo.value,login:usuario.login,nomeUsuario:usuario.nome};if(!payload.id||!payload.nome){alert("Preencha ID e nome.");return}if(!validarIdChecklist()){cId.focus();return}const incompleto=motivoChecklistIncompleto(payload);if(incompleto)payload.ativo="nao";abrirProgresso("Salvando checklist",incompleto?`Cadastro incompleto (${incompleto}). Será salvo como inativo.`:"Atualizando a tela e sincronizando com a base...");const local=normalizarChecklist(payload);upsertItem(checklistsTodos,"id",local);atualizarChecklistsLocais();enviarSegundoPlano(payload);concluirProgresso("Checklist salvo",incompleto?"Checklist salvo como inativo até completar o cadastro.":"Checklist atualizado com sucesso.",()=>mostrarExistentes());sincronizarDepois(()=>secaoAberta==="existentes"&&mostrarExistentes())}
+function mostrarExistentes(){const escopo=empresaEscopoAtividades(),base=escopo?checklistsTodos.filter(c=>(c.empresaId||"")===escopo):checklistsTodos,empresas=[...new Set(base.map(c=>c.empresaId||""))],nomes=[...new Set(base.map(c=>c.nome).filter(Boolean))].sort();adminConteudo.innerHTML=`<h3>Checklists existentes</h3>${escopo?`<div class="tableItem">Empresa deste dispositivo: <b>${nomeEmpresa(escopo)}</b></div>`:`<select id="filtroEmpresaExistente" onchange="renderExistentes()"><option value="">Todas as empresas</option>${empresas.map(e=>`<option value="${e}">${nomeEmpresa(e)}</option>`).join("")}</select>`}<select id="filtroNomeExistente" class="checkFieldHalf" onchange="renderExistentes()"><option value="">Todos os nomes</option>${nomes.map(n=>`<option value="${n}">${n}</option>`).join("")}</select><div id="existentesOut"></div>`;renderExistentes()}
+function renderExistentes(){const escopo=empresaEscopoAtividades(),emp=escopo||(document.getElementById("filtroEmpresaExistente")?.value||""),nome=filtroNomeExistente.value;const lista=checklistsTodos.filter(c=>(!emp||(c.empresaId||"")===emp)&&(!nome||c.nome===nome)).sort(ordenarChecklistsBase);existentesOut.innerHTML=lista.map(c=>{const ativo=c.ativo!=="nao",incompleto=motivoChecklistIncompleto(c);return `<div class="tableItem"><b>${c.nome}</b><br>${c.descricao?`<span class="small">${c.descricao}</span><br>`:""}Empresa: ${nomeEmpresa(c.empresaId)}<br>${c.horario} até ${c.horarioFim}<br>Turnos: ${c.turnos.map(nomeTurno).join(", ")||"sem turno"}${incompleto?`<br><span class="fieldWarning">Cadastro incompleto: ${incompleto}. Checklist mantido inativo.</span>`:""}<div class="checklistActions"><button class="${ativo?'':'gray'} compactAction" onclick="toggleAtivo('${c.id}','${ativo?'nao':'sim'}')">${ativo?'Ativo':'Desativado'}</button><button class="secondary compactAction" onclick="editarChecklist('${c.id}')">Editar</button><button class="red compactAction" onclick="excluirChecklist('${c.id}')">Excluir</button></div></div>`}).join("")||"<p>Nenhum checklist encontrado.</p>"}
+function editarChecklist(id){mostrarNovoChecklist(checklistsTodos.find(c=>c.id===id))}
+async function toggleAtivo(id,ativo){const c=checklistsTodos.find(x=>x.id===id);if(ativo==="sim"&&motivoChecklistIncompleto(c)){alert("Complete o cadastro antes de ativar: "+motivoChecklistIncompleto(c));return}abrirProgresso(ativo==="sim"?"Ativando checklist":"Desativando checklist","Atualizando a tela e sincronizando com a base...");if(c)c.ativo=ativo;atualizarChecklistsLocais();enviarSegundoPlano({acao:"toggleChecklist",id,ativo,login:usuario.login,nomeUsuario:usuario.nome});concluirProgresso("Checklist atualizado","Status alterado com sucesso.",()=>mostrarExistentes());sincronizarDepois(()=>secaoAberta==="existentes"&&mostrarExistentes())}
+async function excluirChecklist(id){const c=checklistsTodos.find(x=>x.id===id);if(!await confirmarAcao({titulo:"Excluir checklist",texto:"Confirma excluir \""+(c?.nome||id)+"\"?",confirmar:"Excluir checklist",perigo:true}))return;abrirProgresso("Excluindo checklist","Atualizando a tela e sincronizando com a base...");checklistsTodos=checklistsTodos.filter(x=>x.id!==id);atualizarChecklistsLocais();enviarSegundoPlano({acao:"deleteChecklist",id,login:usuario.login,nomeUsuario:usuario.nome});concluirProgresso("Checklist excluído","Checklist removido com sucesso.",()=>mostrarExistentes());sincronizarDepois(()=>secaoAberta==="existentes"&&mostrarExistentes())}
+function periodo(tipo){const d=new Date(),pad=n=>String(n).padStart(2,"0");if(tipo==="dia"){const s=hojeISO();return{inicio:s,fim:s}}if(tipo==="mes"){const i=`${d.getFullYear()}-${pad(d.getMonth()+1)}-01`;const f=new Date(d.getFullYear(),d.getMonth()+1,0);return{inicio:i,fim:`${f.getFullYear()}-${pad(f.getMonth()+1)}-${pad(f.getDate())}`}}const day=d.getDay(),diff=(day===0?-6:1-day),mon=new Date(d);mon.setDate(d.getDate()+diff);const sun=new Date(mon);sun.setDate(mon.getDate()+6);return{inicio:`${mon.getFullYear()}-${pad(mon.getMonth()+1)}-${pad(mon.getDate())}`,fim:`${sun.getFullYear()}-${pad(sun.getMonth()+1)}-${pad(sun.getDate())}`}}
+function dataObjISO(s){const [a,m,d]=String(s).split("-").map(Number);return new Date(a,(m||1)-1,d||1)}
+function isoData(d){const p=n=>String(n).padStart(2,"0");return `${d.getFullYear()}-${p(d.getMonth()+1)}-${p(d.getDate())}`}
+function dataBRISO(s){const d=dataObjISO(s),p=n=>String(n).padStart(2,"0");return `${p(d.getDate())}/${p(d.getMonth()+1)}/${d.getFullYear()}`}
+function diaSemanaData(s){return ["dom","seg","ter","qua","qui","sex","sab"][dataObjISO(s).getDay()]}
+function datasPeriodo(inicio,fim){const out=[],hoje=hojeISO();for(let d=dataObjISO(inicio);isoData(d)<=fim&&isoData(d)<=hoje;d.setDate(d.getDate()+1))out.push(isoData(d));return out}
+function statusRelatorio(c,e,data){if(e)return statusExecucao(c,e);if(data<hojeISO())return"expirado";return statusExecucao(c,null)}
+function linhasRelatorioPeriodo(inicio,fim,execs,empresaId=""){
+  const mapa={},usados=new Set();
+  execs.forEach(e=>{mapa[e.idExecucao]=e});
+  const linhas=[];
+  datasPeriodo(inicio,fim).forEach(data=>{
+    const dia=diaSemanaData(data);
+    checklistsCarregados.filter(c=>(!empresaId||(c.empresaId||"")===empresaId)&&(!c.dias.length||c.dias.includes(dia))).forEach(c=>{
+      const idE=execId(c,data),e=mapa[idE]||getExecLocal(idE),st=statusRelatorio(c,e,data);
+      usados.add(idE);
+      linhas.push({data,checklist:c,idExec:idE,exec:e,status:st});
+    });
+  });
+  execs.filter(e=>e.idExecucao&&!usados.has(e.idExecucao)).forEach(e=>{const c=checklistsTodos.find(x=>x.id===e.idChecklist);if(empresaId&&(!c||(c.empresaId||"")!==empresaId))return;linhas.push({data:e.data,checklist:c||null,idExec:e.idExecucao,exec:e,status:e.status||"finalizado"})});
+  return linhas.sort((a,b)=>(a.data||"").localeCompare(b.data||"")||(a.checklist?horarioParaMinutos(a.checklist.horario):horarioParaMinutos(a.exec?.horario))- (b.checklist?horarioParaMinutos(b.checklist.horario):horarioParaMinutos(b.exec?.horario)));
+}
+function htmlLinhaRelatorio(o){
+  const c=o.checklist,e=o.exec,feito=o.status==="finalizado",pendente=!feito&&o.status!=="aguardando_envio";
+  const nome=feito||o.status==="aguardando_envio"?nomeExecucao(e):"";
+  const titulo=c?.nome||e?.nomeChecklist||"-";
+  const horario=`${c?.horario||e?.horario||"--:--"} até ${c?.horarioFim||e?.horarioFim||"--:--"}`;
+  const designado=c?`Empresa: ${nomeEmpresa(c.empresaId)} | Turnos: ${c.turnos.map(nomeTurno).join(", ")}`:"Checklist fora do cadastro atual";
+  return `<div class="tableItem ${pendente?'gray':''} reportItem">
+    <div>
+      <b>${titulo}</b><br>
+      Data: ${dataBRISO(o.data||hojeISO())}<br>
+      Liberação: ${horario}<br>
+      Status: ${c?textoStatus(o.status,c,e):(e?.status||"-")}<br>
+      ${nome?`Usuário: ${nome}<br>`:`Designado: ${designado}<br>`}
+    </div>
+    ${e?.urlPDF?`<a class="btn blue miniAction" target="_blank" href="${e.urlPDF}">Abrir PDF</a>`:""}
+  </div>`;
+}
+function mostrarRelatorio(){const escopo=empresaEscopoAtividades();adminConteudo.innerHTML=`<h3> Relatórios</h3>${escopo?`<div class="tableItem">Empresa deste dispositivo: <b>${nomeEmpresa(escopo)}</b></div>`:`<select id="relEmpresa"><option value="">Todas as empresas</option>${empresasCarregadas.map(e=>`<option value="${e.id}">${e.nome}</option>`).join("")}</select>`}<div class="grid three"><button onclick="gerarRel('dia')">Dia</button><button onclick="gerarRel('semana')">Semana</button><button onclick="gerarRel('mes')">Mês</button></div><div id="relOut"></div>`}
+async function gerarRel(tipo){
+  const p=periodo(tipo);
+  relOut.innerHTML="Carregando...";
+  const empresaId=empresaEscopoAtividades()||(document.getElementById("relEmpresa")?.value||"");
+  const ex=await carregarExecucoesOnline(p.inicio,p.fim,true);
+  const linhas=linhasRelatorioPeriodo(p.inicio,p.fim,ex,empresaId);
+  relOut.innerHTML=linhas.length?linhas.map(htmlLinhaRelatorio).join(""):"Nenhum checklist programado neste período.";
+}
+function empresasComChecklistHoje(){const escopo=empresaEscopoAtividades(),dia=diaSemanaAtual(),ids=[...new Set(checklistsCarregados.filter(c=>(!escopo||(c.empresaId||"")===escopo)&&(!c.dias.length||c.dias.includes(dia))).map(c=>c.empresaId||""))];return ids}
+function renderTurnosFiltroTodos(){const emp=empresaEscopoAtividades()||(document.getElementById("filtroEmpresaTodos")?.value||""),dia=diaSemanaAtual(),atual=filtroTodos?.value||"";const turnos=[...new Set(checklistsCarregados.filter(c=>(!c.dias.length||c.dias.includes(dia))&&(!emp||(c.empresaId||"")===emp)).flatMap(c=>c.turnos))];filtroTodos.innerHTML=`<option value="">Todos os turnos</option>${turnos.map(t=>`<option value="${t}" ${t===atual?"selected":""}>${nomeTurno(t)}</option>`).join("")}`;if(atual&&!turnos.includes(atual))filtroTodos.value=""}
+function mostrarTodos(){const escopo=empresaEscopoAtividades(),empresas=empresasComChecklistHoje();adminConteudo.innerHTML=`<h3> Todos os checklists de hoje</h3>${escopo?`<div class="tableItem">Empresa deste dispositivo: <b>${nomeEmpresa(escopo)}</b></div>`:`<select id="filtroEmpresaTodos" onchange="renderTurnosFiltroTodos();renderTodos()"><option value="">Todas as empresas</option>${empresas.map(e=>`<option value="${e}">${nomeEmpresa(e)}</option>`).join("")}</select>`}<select id="filtroTodos" onchange="renderTodos()"><option value="">Todos os turnos</option></select><div id="todosOut"></div>`;renderTurnosFiltroTodos();renderTodos()}
+function renderTodos(){const emp=empresaEscopoAtividades()||(document.getElementById("filtroEmpresaTodos")?.value||""),f=filtroTodos.value,dia=diaSemanaAtual();const arr=checklistsCarregados.filter(c=>(!c.dias.length||c.dias.includes(dia))&&(!emp||(c.empresaId||"")===emp)&&(!f||c.turnos.includes(f))).map(c=>({checklist:c,...statusCombinado(c)})).sort(ordenarCards);todosOut.innerHTML=arr.map(o=>cardHTML(o.checklist,o,true)).join("")||"<p>Nenhum checklist encontrado para os filtros selecionados.</p>"}
+function atualizarFooter(){footerStatus.innerText=`Painel Operacional v6.15 • ${navigator.onLine?" Online":" Offline"} • ${textoUltimaSync()}`}
+async function syncDiarioPainel(){try{await processarFila()}catch(e){}try{await carregarBase(true,true)}catch(e){}if(usuario.tipo==="admin")renderAdmin();else renderOperador();atualizarFooter()}
+async function init(){try{await garantirEmpresaDispositivo()}catch(e){}try{await processarFila()}catch(e){}try{await carregarBase(true,true)}catch(e){}renderAdmin();atualizarFooter();agendarSyncDiario("syncDiarioPainel",syncDiarioPainel);setInterval(async()=>{try{await processarFila()}catch(e){}try{await carregarBase(false);atualizarFooter();if(usuario.tipo!=="admin")renderPainelOperador()}catch(e){baseOnlineOk=false;erroBaseOnline=e.message||"Falha ao atualizar base online.";atualizarFooter();if(usuario.tipo!=="admin")renderOperador()}},APP.SYNC_INTERVAL_MS)}
+init();if("serviceWorker"in navigator)navigator.serviceWorker.register("sw.js").catch(()=>{});
+</script></body></html>
+
+
