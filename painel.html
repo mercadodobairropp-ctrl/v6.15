@@ -1,7 +1,7 @@
-﻿<!DOCTYPE html><html lang="pt-br"><head><meta charset="UTF-8"><meta name="viewport" content="width=device-width, initial-scale=1.0"><title>Painel Operacional v6.15</title><link rel="manifest" href="manifest.json"><link rel="icon" href="icon-192.png"><link rel="stylesheet" href="styles.css?v=6.15-device-20260623"></head><body>
+﻿<!DOCTYPE html><html lang="pt-br"><head><meta charset="UTF-8"><meta name="viewport" content="width=device-width, initial-scale=1.0"><title>Painel Operacional v6.15</title><link rel="manifest" href="manifest.json"><link rel="icon" href="icon-192.png"><link rel="stylesheet" href="styles.css?v=6.15-api-20260623"></head><body>
 <div class="container"><div class="topbar"><div class="logoArea"><img src="icon-512.png" class="logo"><div><h1 id="titulo">Olá,</h1><div class="sub">Painel Operacional v6.15</div><div class="topActions"><button class="secondary" onclick="atualizarManual()">Atualizar</button><button class="secondary" onclick="logout()">Sair</button></div></div></div></div><div id="adminArea"></div><div id="operadorArea"></div><div class="footerStatus" id="footerStatus">v6.15</div></div>
 <div class="modal" id="progressoModal"><div class="modalContent progressModal"><h2 id="progressoTitulo">Processando</h2><p id="progressoTexto">Aguarde...</p><div class="progressTrack"><div id="progressoBarra" class="progressBar" style="width:0%"></div></div><div id="progressoPct" class="progressPct">0%</div></div></div>
-<script src="config.js?v=6.15-device-20260623"></script><script src="app.js?v=6.15-device-20260623"></script><script>
+<script src="config.js?v=6.15-api-20260623"></script><script src="app.js?v=6.15-api-20260623"></script><script>
 const usuario=exigirLogin();let checklistsCarregados=[],checklistsTodos=[],turnosCarregados=[],empresasCarregadas=[],execucoes=[],secaoAberta=null,recargaVaziaEmAndamento=false,recargaVaziaTentativas=0,baseOnlineOk=false,erroBaseOnline="";titulo.innerText=`Olá ${usuario.nome || "usuário"},`;
 let progressoTimer=null,progressoValor=0;
 function atualizarProgresso(v,titulo,texto){progressoValor=Math.max(progressoValor,Math.min(100,Math.round(v)));progressoBarra.style.width=progressoValor+"%";progressoPct.innerText=progressoValor+"%";if(titulo)progressoTitulo.innerText=titulo;if(texto)progressoTexto.innerText=texto}
@@ -292,5 +292,6 @@ async function syncDiarioPainel(){try{await processarFila()}catch(e){}try{await 
 async function init(){try{await garantirEmpresaDispositivo()}catch(e){}try{await processarFila()}catch(e){}try{await carregarBase(true,true)}catch(e){}renderAdmin();atualizarFooter();agendarSyncDiario("syncDiarioPainel",syncDiarioPainel);setInterval(async()=>{try{await processarFila()}catch(e){}try{await carregarBase(false);atualizarFooter();if(usuario.tipo!=="admin")renderPainelOperador()}catch(e){baseOnlineOk=false;erroBaseOnline=e.message||"Falha ao atualizar base online.";atualizarFooter();if(usuario.tipo!=="admin")renderOperador()}},APP.SYNC_INTERVAL_MS)}
 init();if("serviceWorker"in navigator)navigator.serviceWorker.register("sw.js").catch(()=>{});
 </script></body></html>
+
 
 
