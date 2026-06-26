@@ -121,7 +121,7 @@ function reabrirExecucaoDados_(e){
       urlPDF:"",
       criadoEm:ex.criadoEm||new Date().toISOString(),
       nomeArquivo:"",
-      reabertoPor:e.parameter.login||"",
+      reabertoPor:normalizarLogin_(e.parameter.login),
       reabertoEm:reabertoEm,
       novoHorarioFim:novo
     };
@@ -137,7 +137,7 @@ function reabrirExecucao_(e){
   const r=reabrirExecucaoDados_(e);
   return ContentService.createTextOutput(JSON.stringify(r)).setMimeType(ContentService.MimeType.JSON);
 }
-function log_(tipo,login,nomeUsuario,idChecklist,nomeChecklist,detalhe){aba_("logs").appendRow([new Date().toISOString(),tipo||"",login||"",nomeUsuario||"",idChecklist||"",nomeChecklist||"",detalhe||""]);return ContentService.createTextOutput("ok")}
+function log_(tipo,login,nomeUsuario,idChecklist,nomeChecklist,detalhe){aba_("logs").appendRow([new Date().toISOString(),tipo||"",normalizarLogin_(login),nomeUsuario||"",idChecklist||"",nomeChecklist||"",detalhe||""]);return ContentService.createTextOutput("ok")}
 function logDados_(e){
   const p=e.parameter||{};
   log_(p.tipo,p.login,p.nomeUsuario,p.idChecklist,p.nomeChecklist,p.detalhe);

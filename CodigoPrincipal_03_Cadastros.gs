@@ -31,6 +31,33 @@ function deleteEmpresa_(e){
   return ContentService.createTextOutput("ok");
 }
 
+function dispositivoPorId_(deviceId){
+  deviceId=String(deviceId||"").trim();
+  if(!deviceId)return null;
+  const lista=listar_("dispositivos");
+  return lista.find(function(d){return String(d.deviceId||"").trim()===deviceId})||null;
+}
+function getDispositivoDados_(e){
+  const deviceId=String(e.parameter.deviceId||"").trim();
+  const d=dispositivoPorId_(deviceId);
+  if(!deviceId)return {status:"erro",mensagem:"ID do dispositivo não informado."};
+  if(!d||String(d.ativo||"sim").toLowerCase()==="nao")return {status:"ok",deviceId:deviceId,empresaId:"",dispositivo:null};
+  return {status:"ok",deviceId:deviceId,empresaId:String(d.empresaId||"").trim(),dispositivo:d};
+}
+function salvarDispositivoDados_(e){
+  const deviceId=String(e.parameter.deviceId||"").trim();
+  const empresaId=String(e.parameter.empresaId||"").trim();
+  const nome=String(e.parameter.nome||"").trim();
+  if(!deviceId)return {status:"erro",mensagem:"ID do dispositivo não informado."};
+  const obj={deviceId:deviceId,empresaId:empresaId,nome:nome,ativo:"sim",atualizadoEm:new Date().toISOString()};
+  upsertObj_("dispositivos","deviceId",deviceId,obj);
+  log_("salvou_dispositivo",e.parameter.login,e.parameter.nomeUsuario,deviceId,"","Empresa do dispositivo: "+empresaId);
+  return {status:"ok",dispositivo:obj};
+}
+function salvarDispositivo_(e){
+  return ContentService.createTextOutput(JSON.stringify(salvarDispositivoDados_(e))).setMimeType(ContentService.MimeType.JSON);
+}
+
 function salvarChecklist_(e){
   const obj={id:e.parameter.id,nome:e.parameter.nome,descricao:e.parameter.descricao,horario:normalizarHora_(e.parameter.horario),horarioFim:normalizarHora_(e.parameter.horarioFim),turnos:e.parameter.turnos,dias:e.parameter.dias,prioridade:e.parameter.prioridade,tarefas:e.parameter.tarefas,ativo:e.parameter.ativo,empresaId:e.parameter.empresaId||""};
   if(!checklistCompleto_(obj))obj.ativo="nao";

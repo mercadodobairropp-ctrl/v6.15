@@ -1,9 +1,9 @@
-<!DOCTYPE html><html lang="pt-br"><head><meta charset="UTF-8"><meta name="viewport" content="width=device-width, initial-scale=1.0"><title>Checklist</title><link rel="manifest" href="manifest.json"><link rel="icon" href="icon-192.png"><link rel="stylesheet" href="styles.css?v=6.15-base-nova-admin1-api2-20260625"><script src="https://cdnjs.cloudflare.com/ajax/libs/jspdf/2.5.1/jspdf.umd.min.js"></script></head><body>
+<!DOCTYPE html><html lang="pt-br"><head><meta charset="UTF-8"><meta name="viewport" content="width=device-width, initial-scale=1.0"><title>Checklist</title><link rel="manifest" href="manifest.json"><link rel="icon" href="icon-192.png"><link rel="stylesheet" href="styles.css?v=v615-limpo-login-enter-20260626"><script src="https://cdnjs.cloudflare.com/ajax/libs/jspdf/2.5.1/jspdf.umd.min.js"></script></head><body>
 <div class="container"><div class="topbar"><div class="logoArea"><img src="icon-512.png" class="logo"><div><h1 id="titulo">Checklist</h1><div class="sub" id="subtitulo"></div></div></div><button class="red" style="width:auto;margin:0" onclick="cancelarExecucao()">Cancelar execução</button></div><div class="card"><div><b>Responsável:</b> <span id="responsavel"></span></div><div><b>Início:</b> <span id="inicio"></span></div><div><b>Término:</b> <span id="fim">--:--</span></div></div><div id="tarefas"></div><button onclick="finalizar()">✅ Finalizar e enviar PDF</button></div>
 <div class="modal" id="cameraModal"><div class="modalContent"><h2>📷 Câmera</h2><video id="video" autoplay playsinline></video><div class="row"><button onclick="capturarFoto()">Capturar</button><button class="secondary" onclick="fecharCamera()">Cancelar</button></div></div></div>
 <div class="modal" id="envioModal"><div class="modalContent progressModal"><h2 id="envioTitulo">Gerando PDF</h2><p id="envioTexto">Preparando arquivo e enviando para o Drive...</p><div class="progressTrack"><div id="envioBarra" class="progressBar" style="width:0%"></div></div><div id="envioPct" class="progressPct">0%</div></div></div>
 <div class="modal" id="avisoModal"><div class="modalContent confirmModal"><h2 id="avisoTitulo">Atenção</h2><p id="avisoTexto"></p><button id="avisoOk" type="button">OK</button></div></div>
-<script src="config.js?v=6.15-base-nova-admin1-api2-20260625"></script><script src="app.js?v=6.15-base-nova-admin1-api2-20260625"></script><script>
+<script src="config.js?v=v615-limpo-login-enter-20260626"></script><script src="app.js?v=v615-limpo-login-enter-20260626"></script><script>
 const usuario=exigirLogin(),params=new URLSearchParams(location.search),id=params.get("id"),idExec=params.get("exec");let checklist=null,inicio=new Date(),fotoAtualIndex=null,stream=null,envioTimer=null,envioHardTimer=null,envioProgresso=0,execucaoFinalizando=false,execucaoLiberada=false,envioEncerrado=false,saidaPermitida=false;
 history.pushState({checklist:true},"",location.href);window.onpopstate=function(){history.pushState({checklist:true},"",location.href);confirmarSaidaChecklist()};
 async function iniciar(){const lista=await obterChecklists();checklist=lista.find(c=>c.id===id);if(!checklist){await mostrarAviso("Checklist não encontrado","Volte ao painel e tente abrir novamente.");location.href="painel.html";return}let execAtual=getExecLocal(idExec);if(!execAtual){const online=await carregarExecucoesOnline(hojeISO(),hojeISO(),true);execAtual=online.find(e=>e.idExecucao===idExec)||null}const st=statusExecucao(checklist,execAtual);if(["expirado","finalizado","aguardando"].includes(st)){await mostrarAviso("Checklist indisponível","Este checklist não está disponível para execução agora.");location.href="painel.html";return}document.title=checklist.nome;titulo.innerText=checklist.nome;subtitulo.innerText=`${checklist.descricao} • ${checklist.horario} até ${checklist.horarioFim}`;responsavel.innerText=`${usuario.nome} (${usuario.login})`;document.getElementById("inicio").innerText=horaBR();montar()}
@@ -18,8 +18,8 @@ function fecharCamera(){cameraModal.style.display="none";if(stream){stream.getTr
 function capturarFoto(){const canvas=document.createElement("canvas"),maxW=APP.FOTO_CAPTURA_MAX_WIDTH||720,ratio=video.videoHeight/video.videoWidth||1,w=Math.min(maxW,video.videoWidth||maxW);canvas.width=w;canvas.height=Math.round(w*ratio);canvas.getContext("2d").drawImage(video,0,0,canvas.width,canvas.height);canvas.toBlob(blob=>{if(!blob)return;mostrarFotoBlob(fotoAtualIndex,blob);salvarFotoRascunho(fotoAtualIndex,blob);salvarRascunho()},"image/jpeg",APP.FOTO_CAPTURA_QUALIDADE||0.45);fecharCamera()}
 function chaveRascunho(){return `rascunho_${idExec}`}
 function salvarRascunho(){if(!checklist||execucaoFinalizando)return;const tarefas=checklist.tarefas.map((_,i)=>({check:!!document.getElementById("c"+i)?.checked,obs:document.getElementById("obs"+i)?.value||""}));try{setJSONLocalSeguro(chaveRascunho(),{idExec,idChecklist:id,atualizadoEm:new Date().toISOString(),tarefas})}catch(e){}}
-function restaurarRascunho(){try{const r=JSON.parse(localStorage.getItem(chaveRascunho())||"null");if(r&&Array.isArray(r.tarefas))r.tarefas.forEach((t,i)=>{const c=document.getElementById("c"+i),obs=document.getElementById("obs"+i);if(c)c.checked=!!t.check;if(obs)obs.value=t.obs||""});(checklist?.tarefas||[]).forEach((_,i)=>obterFotoRascunho(i).then(blob=>{if(blob)mostrarFotoBlob(i,blob)}))}catch(e){}}
-function limparRascunho(){localStorage.removeItem(chaveRascunho());limparFotosRascunho()}
+function restaurarRascunho(){try{const r=JSON.parse(lsGet(chaveRascunho())||"null");if(r&&Array.isArray(r.tarefas))r.tarefas.forEach((t,i)=>{const c=document.getElementById("c"+i),obs=document.getElementById("obs"+i);if(c)c.checked=!!t.check;if(obs)obs.value=t.obs||""});(checklist?.tarefas||[]).forEach((_,i)=>obterFotoRascunho(i).then(blob=>{if(blob)mostrarFotoBlob(i,blob)}))}catch(e){}}
+function limparRascunho(){lsRemove(chaveRascunho());limparFotosRascunho()}
 function addWrapped(pdf,text,x,y,w,h){const lines=pdf.splitTextToSize(String(text||""),w);pdf.text(lines,x,y);return y+lines.length*h}
 function ensurePage(pdf,y,n){if(y+n>275){pdf.addPage();return 18}return y}
 function atualizarProgresso(v,titulo,texto){envioProgresso=Math.max(envioProgresso,Math.min(100,Math.round(v)));envioBarra.style.width=envioProgresso+"%";envioPct.innerText=envioProgresso+"%";if(titulo)envioTitulo.innerText=titulo;if(texto)envioTexto.innerText=texto}
@@ -60,7 +60,7 @@ async function finalizar(){
     const blob=await gerarPDF();
     atualizarProgresso(45,"Preparando envio","Convertendo PDF para envio ao Drive...");
     const base64=await new Promise((resolve,reject)=>{const reader=new FileReader();const timer=setTimeout(()=>reject(new Error("Tempo esgotado ao preparar o PDF.")),12000);reader.onerror=()=>{clearTimeout(timer);reject(new Error("Falha ao preparar o PDF."))};reader.onloadend=()=>{clearTimeout(timer);resolve(String(reader.result||"").split(",")[1]||"")};reader.readAsDataURL(blob)});
-    const nome=nomePdf(checklist),turno=getExecLocal(idExec)?.turno||localStorage.getItem("turnoSelecionado")||"";
+    const nome=nomePdf(checklist),turno=getExecLocal(idExec)?.turno||lsGet("turnoSelecionado")||"";
     const meta={idExecucao:idExec,data:hojeISO(),idChecklist:checklist.id,nomeChecklist:checklist.nome,horario:checklist.horario,horarioFim:checklist.horarioFim,login:usuario.login,nomeUsuario:usuario.nome,turno,nomeArquivo:nome};
     atualizarProgresso(62,"Atualizando painéis","Registrando envio pendente na nuvem...");
     await marcarEnvioPendenteOnline(meta);
@@ -83,6 +83,7 @@ window.addEventListener("pagehide",()=>{if(saidaPermitida||execucaoFinalizando)r
 window.addEventListener("beforeunload",e=>{if(saidaPermitida||execucaoFinalizando)return;salvarRascunho();e.preventDefault();e.returnValue=""});
 iniciar();
 </script></body></html>
+
 
 
 

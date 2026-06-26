@@ -2,25 +2,20 @@ CHECKLISTS v6.15 - INSTALACAO DOS APPS SCRIPTS
 
 1. PROJETO PRINCIPAL
 
-Use somente uma destas opcoes:
+Use somente estes quatro arquivos no mesmo projeto:
+- CodigoPrincipal_01_Base.gs.
+- CodigoPrincipal_02_Operacional.gs.
+- CodigoPrincipal_03_Cadastros.gs.
+- CodigoPrincipal_04_ExecucoesLogs.gs.
 
-Opcao A:
-- Cole apenas Codigo.gs.
-
-Opcao B, indicada quando o editor nao aceita o arquivo inteiro:
-- Crie quatro arquivos no mesmo projeto.
-- Cole CodigoPrincipal_01_Base.gs.
-- Cole CodigoPrincipal_02_Operacional.gs.
-- Cole CodigoPrincipal_03_Cadastros.gs.
-- Cole CodigoPrincipal_04_ExecucoesLogs.gs.
-
-Nunca use Codigo.gs junto com as quatro partes no mesmo projeto.
+O arquivo completo Codigo.gs foi removido deste pacote para evitar duplicidade.
 
 Nas Configuracoes do projeto, em Propriedades do script, cadastre:
 - TELEGRAM_TOKEN
 - TELEGRAM_CHAT_ID
 
 Depois, execute testarInstalacaoPrincipal e implante uma nova versao do app da Web.
+Este passo e obrigatorio para ativar as rotas getDispositivo e saveDispositivo.
 
 Planilha exclusiva da v6.15:
 https://docs.google.com/spreadsheets/d/1x21hmdwOodNuHTP1kFzW_UB7Li61VXWwiMBu1OCTpuI/edit
@@ -32,13 +27,24 @@ Na primeira execucao, o script cria as abas:
 - checklists
 - execucoes
 - logs
+- dispositivos
 
 Administrador inicial:
 - login: 1
-- nome: André
+- nome: Andreé
 - senha: 1111
 
+Regra de login:
+- Login numerico ignora zeros a esquerda.
+- Exemplo: 1, 01 e 001 sao tratados como o mesmo login.
+
 Nenhuma empresa, turno, operador ou checklist de outra versao e criado.
+
+Empresa do dispositivo:
+- Cada aparelho recebe um ID automatico.
+- Ao salvar a empresa no painel gerencial, o app salva no aparelho e tambem na aba dispositivos.
+- Se a empresa local sumir, o app tenta restaurar pela nuvem usando o ID do aparelho.
+- Se o Andreoid/navegador apagar todos os dados do site, inclusive o ID do aparelho, sera necessario configurar a empresa novamente.
 
 2. PROJETO DE UPLOAD
 

@@ -65,7 +65,7 @@ function operacionalDados_(e){
   };
 }
 function syncInfo_(){
-  const nomes=["usuarios","turnos","empresas","checklists","execucoes"];
+  const nomes=["usuarios","turnos","empresas","dispositivos","checklists","execucoes"];
   const partes=nomes.map(nome=>{
     const sh=aba_(nome);
     const lr=sh.getLastRow(),lc=sh.getLastColumn();

@@ -1,15 +1,21 @@
 ﻿const Mem={usuarios:null,turnos:null,empresas:null,checklists:null,execucoes:null,last:{usuarios:0,turnos:0,empresas:0,checklists:0,execucoes:0},pending:{}};
 const NET={jsonpTimeout:22000,jsonpRetryDelay:650,postTimeout:18000};
+const LS_NS="v615:";
+function lsKey(k){return LS_NS+k}
+function lsGet(k){return localStorage.getItem(lsKey(k))}
+function lsSet(k,v){localStorage.setItem(lsKey(k),v)}
+function lsRemove(k){localStorage.removeItem(lsKey(k))}
+function lsKeys(){return Object.keys(localStorage).filter(k=>k.startsWith(LS_NS)).map(k=>k.slice(LS_NS.length))}
 function prepararVersaoLocal(){
-  const v=localStorage.getItem("appVersaoDados");
+  const v=lsGet("appVersaoDados");
   const versaoDados=APP.DADOS_VERSAO||APP.versao;
   if(v===versaoDados)return;
   const preservar=new Set();
-  Object.keys(localStorage).forEach(k=>{
+  lsKeys().forEach(k=>{
     if(preservar.has(k))return;
-    if(k.startsWith("exec_")||k.startsWith("rascunho_")||k.includes("_alerta_v")||["empresaDispositivo","usuariosSistema","turnosSistema","empresasSistema","checklistsSistema","filaEnvio","filaArquivosEnvio","syncRevision","syncServidor","ultimaSync","turnoSelecionado"].includes(k))localStorage.removeItem(k);
+    if(k.startsWith("exec_")||k.startsWith("rascunho_")||k.includes("_alerta_v")||["empresaDispositivo","usuariosSistema","turnosSistema","empresasSistema","checklistsSistema","filaEnvio","filaArquivosEnvio","syncRevision","syncServidor","ultimaSync","turnoSelecionado"].includes(k))lsRemove(k);
   });
-  localStorage.setItem("appVersaoDados",versaoDados);
+  lsSet("appVersaoDados",versaoDados);
 }
 prepararVersaoLocal();
 function desativarSugestoesCampos(root=document){
@@ -24,7 +30,23 @@ function desativarSugestoesCampos(root=document){
 }
 document.addEventListener("DOMContentLoaded",()=>desativarSugestoesCampos());
 document.addEventListener("focusin",e=>{if(e.target?.matches?.("input, textarea"))desativarSugestoesCampos(e.target)});
-function normalizarLogin(v){return String(v||"").trim()}
+function elementoVisivel(el){return !!(el&&el.offsetParent!==null&&!el.disabled)}
+function acionarBotaoComEnter(e){
+  if(e.key!=="Enter"||e.isComposing)return;
+  const alvo=e.target;
+  if(!alvo?.matches?.("input, select"))return;
+  e.preventDefault();
+  const raiz=alvo.closest(".loginBox,.modalContent,.card,#adminConteudo,.container")||document;
+  const botoes=[...raiz.querySelectorAll("button,a.btn")].filter(elementoVisivel);
+  const depois=botoes.find(b=>!!(alvo.compareDocumentPosition(b)&Node.DOCUMENT_POSITION_FOLLOWING));
+  (depois||botoes[0])?.click();
+}
+document.addEventListener("keydown",acionarBotaoComEnter);
+function normalizarLogin(v){
+  const s=String(v??"").trim();
+  if(/^\d+$/.test(s))return String(parseInt(s,10));
+  return s;
+}
 function normalizarSenha(v){const s=String(v??"").trim();return /^\d+\.0$/.test(s)?s.replace(/\.0$/,""):s}
 function normalizarUsuario(u){
   const login=normalizarLogin(u.login);
@@ -33,12 +55,12 @@ function normalizarUsuario(u){
   if(!nome) nome="Usuário";
   return {...u,login,nome,tipo:String(u.tipo||"operador").trim().toLowerCase(),turnosPermitidos:parseLista(u.turnosPermitidos||"").join(","),empresasPermitidas:parseLista(u.empresasPermitidas||"").join(",")};
 }
-function usuarioLogado(){try{const u=JSON.parse(localStorage.getItem("usuarioLogado"));return u?normalizarUsuario(u):null}catch(e){return null}}
+function usuarioLogado(){try{const u=JSON.parse(lsGet("usuarioLogado"));return u?normalizarUsuario(u):null}catch(e){return null}}
 function exigirLogin(){const u=usuarioLogado();if(!u){location.href="login.html";return null}return u}
 function nomePorLogin(login){
   login=normalizarLogin(login);
   try{
-    const lista=JSON.parse(localStorage.getItem("usuariosSistema")||"[]");
+    const lista=JSON.parse(lsGet("usuariosSistema")||"[]");
     const u=lista.find(x=>normalizarLogin(x.login)===login);
     if(u && u.nome) return u.nome;
   }catch(e){}
@@ -88,25 +110,25 @@ function normalizarChecklist(c){const o={id:String(c.id||"").trim(),nome:String(
 function normalizarTurno(t){return{id:String(t.id||"").trim(),nome:String(t.nome||"").trim(),empresaId:String(t.empresaId||"").trim(),ativo:String(t.ativo||"sim").toLowerCase()}}
 function normalizarEmpresa(e){return{id:String(e.id||"").trim(),nome:String(e.nome||"").trim(),ativo:String(e.ativo||"sim").toLowerCase()}}
 function execId(c,data=hojeISO()){return `${data}_${c.id}_${String(c.horario).replace(":","-")}`}
-function getExecLocal(id){try{return JSON.parse(localStorage.getItem("exec_"+id)||"null")}catch(e){return null}}
+function getExecLocal(id){try{return JSON.parse(lsGet("exec_"+id)||"null")}catch(e){return null}}
 function limparArmazenamentoPesado(){
   const hoje=hojeISO();
-  Object.keys(localStorage).forEach(k=>{
-    if(k.startsWith("rascunho_"))localStorage.removeItem(k);
-    if(k.startsWith("exec_")&&!k.includes(hoje))localStorage.removeItem(k);
-    if(k.includes("_alerta_v"))localStorage.removeItem(k);
+  lsKeys().forEach(k=>{
+    if(k.startsWith("rascunho_"))lsRemove(k);
+    if(k.startsWith("exec_")&&!k.includes(hoje))lsRemove(k);
+    if(k.includes("_alerta_v"))lsRemove(k);
   });
 }
 function setJSONLocalSeguro(key,d){
   const valor=JSON.stringify(d);
-  try{localStorage.setItem(key,valor);return true}catch(e){}
+  try{lsSet(key,valor);return true}catch(e){}
   limparArmazenamentoPesado();
-  try{localStorage.setItem(key,valor);return true}catch(e){return false}
+  try{lsSet(key,valor);return true}catch(e){return false}
 }
-function salvarCacheLocal(key,d){try{localStorage.setItem(key,JSON.stringify(d));return true}catch(e){return false}}
-function salvarSessaoLocal(key,d){if(setJSONLocalSeguro(key,d))return true;["usuariosSistema","turnosSistema","empresasSistema","checklistsSistema"].forEach(k=>localStorage.removeItem(k));return setJSONLocalSeguro(key,d)}
+function salvarCacheLocal(key,d){try{lsSet(key,JSON.stringify(d));return true}catch(e){return false}}
+function salvarSessaoLocal(key,d){if(setJSONLocalSeguro(key,d))return true;["usuariosSistema","turnosSistema","empresasSistema","checklistsSistema"].forEach(k=>lsRemove(k));return setJSONLocalSeguro(key,d)}
 function setExecLocal(id,d){setJSONLocalSeguro("exec_"+id,d)}
-function removeExecLocal(id){localStorage.removeItem("exec_"+id)}
+function removeExecLocal(id){lsRemove("exec_"+id)}
 function postAPI(data,timeoutMs=NET.postTimeout,url=APP.API_URL){
   const envio=fetch(url,{method:"POST",mode:"no-cors",body:new URLSearchParams(data)});
   if(!timeoutMs)return envio;
@@ -180,15 +202,20 @@ async function iniciarExecucaoOnline(payload){
   erro.resposta=r;
   throw erro;
 }
-function salvarCacheBase(d,agora=Date.now()){salvarCacheLocal("turnosSistema",Mem.turnos||[]);salvarCacheLocal("empresasSistema",Mem.empresas||[]);salvarCacheLocal("checklistsSistema",Mem.checklists||[]);try{if(d?.revision)localStorage.setItem("syncRevision",d.revision||"");if(d?.servidorEm)localStorage.setItem("syncServidor",d.servidorEm||"")}catch(e){}["turnos","empresas","checklists","execucoes"].forEach(k=>Mem.last[k]=agora)}
-function listaLocal(key,def=[]){try{const v=localStorage.getItem(key);return v?JSON.parse(v):def}catch(e){return def}}
+function salvarCacheBase(d,agora=Date.now()){salvarCacheLocal("turnosSistema",Mem.turnos||[]);salvarCacheLocal("empresasSistema",Mem.empresas||[]);salvarCacheLocal("checklistsSistema",Mem.checklists||[]);try{if(d?.revision)lsSet("syncRevision",d.revision||"");if(d?.servidorEm)lsSet("syncServidor",d.servidorEm||"")}catch(e){}["turnos","empresas","checklists","execucoes"].forEach(k=>Mem.last[k]=agora)}
+function listaLocal(key,def=[]){try{const v=lsGet(key);return v?JSON.parse(v):def}catch(e){return def}}
 function baseLocal(){return{turnos:listaLocal("turnosSistema",[]),empresas:listaLocal("empresasSistema",[]),checklists:listaLocal("checklistsSistema",[]),execucoes:Mem.execucoes||[]}}
-function abrirBancoDispositivo(){return new Promise((resolve,reject)=>{if(!("indexedDB"in window)){reject(new Error("IndexedDB indisponível"));return}const req=indexedDB.open("checklistDispositivoV615Api2",1);req.onupgradeneeded=()=>{const db=req.result;if(!db.objectStoreNames.contains("config"))db.createObjectStore("config",{keyPath:"key"})};req.onsuccess=()=>resolve(req.result);req.onerror=()=>reject(req.error||new Error("Falha ao abrir configuração do dispositivo"))})}
-async function solicitarPersistenciaArmazenamento(){try{if(!navigator.storage?.persist)return false;const ja=await navigator.storage.persisted?.();if(ja){localStorage.setItem("armazenamentoPersistente","sim");return true}const ok=await navigator.storage.persist();localStorage.setItem("armazenamentoPersistente",ok?"sim":"nao");return ok}catch(e){return false}}
+function abrirBancoDispositivo(){return new Promise((resolve,reject)=>{if(!("indexedDB"in window)){reject(new Error("IndexedDB indisponível"));return}const req=indexedDB.open("checklistDispositivoV615DeviceCloud",1);req.onupgradeneeded=()=>{const db=req.result;if(!db.objectStoreNames.contains("config"))db.createObjectStore("config",{keyPath:"key"})};req.onsuccess=()=>resolve(req.result);req.onerror=()=>reject(req.error||new Error("Falha ao abrir configuração do dispositivo"))})}
+async function solicitarPersistenciaArmazenamento(){try{if(!navigator.storage?.persist)return false;const ja=await navigator.storage.persisted?.();if(ja){lsSet("armazenamentoPersistente","sim");return true}const ok=await navigator.storage.persist();lsSet("armazenamentoPersistente",ok?"sim":"nao");return ok}catch(e){return false}}
+function gerarDeviceId(){const arr=new Uint8Array(8);try{crypto.getRandomValues(arr)}catch(e){for(let i=0;i<arr.length;i++)arr[i]=Math.floor(Math.random()*256)}return "disp-"+[...arr].map(b=>b.toString(16).padStart(2,"0")).join("")+"-"+Date.now().toString(36)}
 async function salvarConfigDispositivo(key,value){try{const db=await abrirBancoDispositivo();await new Promise((resolve,reject)=>{const tx=db.transaction("config","readwrite");tx.objectStore("config").put({key,value,atualizadoEm:new Date().toISOString()});tx.oncomplete=resolve;tx.onerror=()=>reject(tx.error)});db.close()}catch(e){}}
 async function lerConfigDispositivo(key){try{const db=await abrirBancoDispositivo();const item=await new Promise((resolve,reject)=>{const tx=db.transaction("config","readonly"),req=tx.objectStore("config").get(key);req.onsuccess=()=>resolve(req.result||null);req.onerror=()=>reject(req.error)});db.close();return item?.value||""}catch(e){return""}}
-async function salvarEmpresaDispositivoPersistente(id){if(id)localStorage.setItem("empresaDispositivo",id);else localStorage.removeItem("empresaDispositivo");await salvarConfigDispositivo("empresaDispositivo",id||"");solicitarPersistenciaArmazenamento().catch(()=>{});return id||""}
-async function garantirEmpresaDispositivo(){let id=localStorage.getItem("empresaDispositivo")||"";if(id)return id;id=await lerConfigDispositivo("empresaDispositivo");if(id)localStorage.setItem("empresaDispositivo",id);return id||""}
+async function salvarDeviceId(id){if(id)lsSet("deviceId",id);await salvarConfigDispositivo("deviceId",id||"");return id||""}
+async function garantirDeviceId(){const urlId=new URLSearchParams(location.search).get("deviceId")||"";let id=(urlId||lsGet("deviceId")||"").trim();if(!id)id=(await lerConfigDispositivo("deviceId")||"").trim();if(!id)id=gerarDeviceId();await salvarDeviceId(id);return id}
+async function buscarEmpresaDispositivoNuvem(deviceId){if(!deviceId||!navigator.onLine)return"";try{const r=await jsonpRetry("getDispositivo",{deviceId},1,9000);return r?.status==="ok"?String(r.empresaId||"").trim():""}catch(e){return""}}
+async function salvarEmpresaDispositivoNuvem(id){const deviceId=await garantirDeviceId();try{await jsonpRetry("saveDispositivo",{deviceId,empresaId:id||"",nome:navigator.userAgent.slice(0,80)},1,9000)}catch(e){}return deviceId}
+async function salvarEmpresaDispositivoPersistente(id){await garantirDeviceId();if(id)lsSet("empresaDispositivo",id);else lsRemove("empresaDispositivo");await salvarConfigDispositivo("empresaDispositivo",id||"");await salvarEmpresaDispositivoNuvem(id||"");solicitarPersistenciaArmazenamento().catch(()=>{});return id||""}
+async function garantirEmpresaDispositivo(){await garantirDeviceId();let id=lsGet("empresaDispositivo")||"";if(id)return id;id=await lerConfigDispositivo("empresaDispositivo");if(id){lsSet("empresaDispositivo",id);return id}id=await buscarEmpresaDispositivoNuvem(await garantirDeviceId());if(id){lsSet("empresaDispositivo",id);await salvarConfigDispositivo("empresaDispositivo",id)}return id||""}
 garantirEmpresaDispositivo().catch(()=>{});
 async function obterChecklists(incluirInativos=false){return await carregarChecklistsOnline(true,incluirInativos)}
 function usuarioPodeVerTurno(u,t){if(u.tipo==="admin")return true;const p=parseLista(u.turnosPermitidos||"");return p.includes("todos")||p.includes(t)}
@@ -203,15 +230,15 @@ function ordenarCards(a,b){const fa=["finalizado","expirado","aguardando_envio"]
 const AlarmesAtivos={timers:[],audios:[]};
 function silenciarAlarmeAtual(){AlarmesAtivos.timers.forEach(t=>clearTimeout(t));AlarmesAtivos.timers=[];AlarmesAtivos.audios.forEach(a=>{try{a.pause();a.currentTime=0}catch(e){}});AlarmesAtivos.audios=[];try{navigator.vibrate?.(0)}catch(e){}}
 function tocarAlarme(c=1){for(let i=0;i<c;i++){const timer=setTimeout(()=>{try{navigator.vibrate?.(2000)}catch(e){}try{const a=new Audio("https://actions.google.com/sounds/v1/alarms/alarm_clock.ogg");AlarmesAtivos.audios.push(a);a.play();const stop=setTimeout(()=>{try{a.pause();a.currentTime=0}catch(e){}AlarmesAtivos.audios=AlarmesAtivos.audios.filter(x=>x!==a)},2000);AlarmesAtivos.timers.push(stop)}catch(e){}},i*2600);AlarmesAtivos.timers.push(timer)}}
-function alertaUnico(id,tipo,ciclos,msg=null){const k=`${id}_${tipo}_alerta_v6`;if(localStorage.getItem(k))return;localStorage.setItem(k,"1");tocarAlarme(ciclos)}
+function alertaUnico(id,tipo,ciclos,msg=null){const k=`${id}_${tipo}_alerta_v6`;if(lsGet(k))return;lsSet(k,"1");tocarAlarme(ciclos)}
 function nomePdf(c){const a=new Date(),ano=a.getFullYear(),mes=String(a.getMonth()+1).padStart(2,"0"),dia=String(a.getDate()).padStart(2,"0");return`${ano}-${mes}-${dia} - ${c.nome.toLowerCase()} - ${horaArquivo(a)}.pdf`}
-function marcarSync(t=""){localStorage.setItem("ultimaSync",t||new Date().toISOString())}
-function textoUltimaSync(){const s=localStorage.getItem("ultimaSync");if(!s)return"Ainda não sincronizado";const m=Math.floor((Date.now()-new Date(s).getTime())/60000);return m<=0?"Atualizado agora":`Atualizado há ${m} min`}
+function marcarSync(t=""){lsSet("ultimaSync",t||new Date().toISOString())}
+function textoUltimaSync(){const s=lsGet("ultimaSync");if(!s)return"Ainda não sincronizado";const m=Math.floor((Date.now()-new Date(s).getTime())/60000);return m<=0?"Atualizado agora":`Atualizado há ${m} min`}
 function proximaMeiaNoiteMs(){const d=new Date();d.setHours(24,0,8,0);return Math.max(1000,d.getTime()-Date.now())}
-async function sincronizarDiario(chave,fn){const hoje=hojeISO();if(localStorage.getItem(chave)===hoje)return false;await fn();localStorage.setItem(chave,hoje);return true}
+async function sincronizarDiario(chave,fn){const hoje=hojeISO();if(lsGet(chave)===hoje)return false;await fn();lsSet(chave,hoje);return true}
 function agendarSyncDiario(chave,fn){sincronizarDiario(chave,fn).catch(()=>{});setTimeout(function disparar(){sincronizarDiario(chave,fn).catch(()=>{});setTimeout(disparar,proximaMeiaNoiteMs())},proximaMeiaNoiteMs())}
 function confirmarAcao({titulo="Confirmar ação",texto="",confirmar="Confirmar",cancelar="Cancelar",perigo=false}={}){return new Promise(resolve=>{let modal=document.getElementById("confirmModal");if(!modal){modal=document.createElement("div");modal.id="confirmModal";modal.className="modal";modal.innerHTML=`<div class="modalContent confirmModal"><h2 id="confirmTitulo"></h2><p id="confirmTexto"></p><div class="confirmActions"><button id="confirmCancelar" class="secondary" type="button"></button><button id="confirmOk" type="button"></button></div></div>`;document.body.appendChild(modal)}const ok=document.getElementById("confirmOk"),cancel=document.getElementById("confirmCancelar");document.getElementById("confirmTitulo").innerText=titulo;document.getElementById("confirmTexto").innerText=texto;ok.innerText=confirmar;ok.className=perigo?"red":"";cancel.innerText=cancelar;modal.style.display="flex";const fechar=v=>{modal.style.display="none";ok.onclick=null;cancel.onclick=null;resolve(v)};ok.onclick=()=>fechar(true);cancel.onclick=()=>fechar(false)})}
-function abrirBancoUploads(){return new Promise((resolve,reject)=>{if(!("indexedDB"in window)){reject(new Error("IndexedDB indisponível"));return}const req=indexedDB.open("checklistArquivosV615Api2",1);req.onupgradeneeded=()=>{const db=req.result;if(!db.objectStoreNames.contains("arquivos"))db.createObjectStore("arquivos",{keyPath:"id"})};req.onsuccess=()=>resolve(req.result);req.onerror=()=>reject(req.error||new Error("Falha ao abrir fila de arquivos"))})}
+function abrirBancoUploads(){return new Promise((resolve,reject)=>{if(!("indexedDB"in window)){reject(new Error("IndexedDB indisponível"));return}const req=indexedDB.open("checklistArquivosV615DeviceCloud",1);req.onupgradeneeded=()=>{const db=req.result;if(!db.objectStoreNames.contains("arquivos"))db.createObjectStore("arquivos",{keyPath:"id"})};req.onsuccess=()=>resolve(req.result);req.onerror=()=>reject(req.error||new Error("Falha ao abrir fila de arquivos"))})}
 async function idsFilaArquivos(){try{const db=await abrirBancoUploads();const ids=await new Promise((resolve,reject)=>{const tx=db.transaction("arquivos","readonly"),req=tx.objectStore("arquivos").getAllKeys();req.onsuccess=()=>resolve(req.result||[]);req.onerror=()=>reject(req.error)});db.close();return ids}catch(e){return[]}}
 async function enfileirarArquivoEnvio(item){const db=await abrirBancoUploads();await new Promise((resolve,reject)=>{const tx=db.transaction("arquivos","readwrite");tx.objectStore("arquivos").put({...item,tentativas:item.tentativas||0,criadoEm:item.criadoEm||new Date().toISOString()});tx.oncomplete=resolve;tx.onerror=()=>reject(tx.error)});db.close();setJSONLocalSeguro("filaArquivosEnvio",await idsFilaArquivos())}
 async function removerArquivoFila(id){try{const db=await abrirBancoUploads();await new Promise((resolve,reject)=>{const tx=db.transaction("arquivos","readwrite");tx.objectStore("arquivos").delete(id);tx.oncomplete=resolve;tx.onerror=()=>reject(tx.error)});db.close();setJSONLocalSeguro("filaArquivosEnvio",await idsFilaArquivos())}catch(e){}}
