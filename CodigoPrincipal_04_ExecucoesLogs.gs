@@ -1,4 +1,4 @@
-﻿function checklistPorId_(id){
+function checklistPorId_(id){
   const lista=listar_("checklists");
   return lista.find(c=>String(c.id).trim()===String(id).trim()) || {};
 }
@@ -166,7 +166,7 @@ function manutencaoLogs_(){
     }
   });
   Object.keys(grupos).forEach(function(nome){
-    const ss=SpreadsheetApp.getActive();
+    const ss=ss_();
     let arq=ss.getSheetByName(nome);
     if(!arq){arq=ss.insertSheet(nome);arq.appendRow(headers)}
     arq.getRange(arq.getLastRow()+1,1,grupos[nome].length,lc).setValues(grupos[nome]);
@@ -174,10 +174,14 @@ function manutencaoLogs_(){
   remover.reverse().forEach(function(row){sh.deleteRow(row)});
 }
 function enviarTelegramMensagem_(mensagem){
-  const resp=UrlFetchApp.fetch("https://api.telegram.org/bot"+TELEGRAM_TOKEN+"/sendMessage",{
+  const props=PropertiesService.getScriptProperties();
+  const token=String(props.getProperty("TELEGRAM_TOKEN")||"").trim();
+  const chatId=String(props.getProperty("TELEGRAM_CHAT_ID")||"").trim();
+  if(!token||!chatId)throw new Error("Configure TELEGRAM_TOKEN e TELEGRAM_CHAT_ID nas Propriedades do Script.");
+  const resp=UrlFetchApp.fetch("https://api.telegram.org/bot"+token+"/sendMessage",{
     method:"post",
     contentType:"application/json",
-    payload:JSON.stringify({chat_id:TELEGRAM_CHAT_ID,text:mensagem}),
+    payload:JSON.stringify({chat_id:chatId,text:mensagem}),
     muteHttpExceptions:true
   });
   return {codigo:resp.getResponseCode(),texto:resp.getContentText().slice(0,300)};

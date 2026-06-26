@@ -1,4 +1,4 @@
-﻿function diaSemanaData_(data){
+function diaSemanaData_(data){
   const s=String(data||dataHoje_()).slice(0,10);
   const d=new Date(s+"T12:00:00");
   return ["dom","seg","ter","qua","qui","sex","sab"][d.getDay()];
@@ -23,7 +23,7 @@ function operacionalDados_(e){
   if(!login)return {status:"erro",motivo:"login_obrigatorio",mensagem:"Login não informado."};
   if(!empresaId)return {status:"erro",motivo:"empresa_dispositivo_nao_definida",mensagem:"Empresa do dispositivo não informada."};
 
-  const dados=completarVinculosEmpresa_({
+  const dados=validarBase_({
     usuarios:listar_("usuarios"),
     turnos:listar_("turnos"),
     empresas:listar_("empresas"),
@@ -89,7 +89,6 @@ function salvarUsuario_(e){
     empresasPermitidas:e.parameter.empresasPermitidas||""
   });
 
-  normalizarAbaUsuarios_();
   log_("salvou_usuario",ator,"",login,e.parameter.nome||"","Usuário salvo/atualizado");
   return ContentService.createTextOutput("ok");
 }

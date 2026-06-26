@@ -1,4 +1,5 @@
 const PASTA_DRIVE_ID = "13xr39zvMhe-YtqWBNuUG9BsCz6tD7W9g";
+const API_PRINCIPAL_URL = "https://script.google.com/macros/s/AKfycbw8efsu7_JEybMoxJbvt0gjn1yAHICY7HFSl0ZVl5OM3jl8iyWDk9Xz2_Zs7XgXD1Ir/exec";
 
 function doGet(e){
   e=e||{parameter:{}};
@@ -51,19 +52,23 @@ function salvarBlob_(pasta,nome,mime,base64){
 }
 
 function uploadArquivoChecklist_(p){
+  const id=String(p.idExecucao||"").trim();
+  const tipo=String(p.tipo||"").trim();
+  if(!id)throw new Error("Execucao nao informada.");
+  if(!["pdf","foto","manifesto"].includes(tipo))throw new Error("Tipo de arquivo invalido: "+tipo);
+  if((tipo==="pdf"||tipo==="foto")&&!String(p.base64||"").trim())throw new Error("Arquivo vazio.");
   const pasta=pastaExecucao_(p);
   const props=PropertiesService.getScriptProperties();
-  const id=String(p.idExecucao||"").trim();
   let url="";
 
-  if(p.tipo==="pdf"){
+  if(tipo==="pdf"){
     url=salvarBlob_(pasta,slugArquivo_(p.nomeArquivo||"checklist")+".pdf","application/pdf",p.base64||"");
     props.setProperty("pdf_"+id,url);
-  }else if(p.tipo==="foto"){
+  }else if(tipo==="foto"){
     const fotos=subpasta_(pasta,"fotos");
     const idx=String(p.index||"0").padStart(2,"0");
     url=salvarBlob_(fotos,idx+" - "+slugArquivo_(p.tarefa||"foto")+".jpg","image/jpeg",p.base64||"");
-  }else if(p.tipo==="manifesto"){
+  }else if(tipo==="manifesto"){
     const dados=JSON.parse(p.manifestoJson||"{}");
     const manifesto=Utilities.newBlob(JSON.stringify(dados,null,2),"application/json","manifesto.json");
     pasta.createFile(manifesto);
@@ -78,9 +83,7 @@ function uploadArquivoChecklist_(p){
 }
 
 function confirmarPrincipal_(p,urlPDF,urlFotos){
-  const main=String(p.mainApiUrl||"").trim();
-  if(!main)return;
-  UrlFetchApp.fetch(main,{
+  const resp=UrlFetchApp.fetch(API_PRINCIPAL_URL,{
     method:"post",
     muteHttpExceptions:true,
     payload:{
@@ -99,4 +102,11 @@ function confirmarPrincipal_(p,urlPDF,urlFotos){
       urlFotos:urlFotos||""
     }
   });
+  const codigo=resp.getResponseCode();
+  const texto=resp.getContentText();
+  let resposta=null;
+  try{resposta=JSON.parse(texto)}catch(_){}
+  if(codigo<200||codigo>=300||/^ERRO:/i.test(texto)||(resposta&&resposta.status!=="ok")){
+    throw new Error("O script principal nao confirmou o upload. HTTP "+codigo+": "+texto.slice(0,200));
+  }
 }

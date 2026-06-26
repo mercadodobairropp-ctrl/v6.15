@@ -1,4 +1,4 @@
-﻿function salvarTurno_(e){
+function salvarTurno_(e){
   const id=String(e.parameter.id||"").trim();
   const nome=String(e.parameter.nome||"").trim();
   const empresaId=String(e.parameter.empresaId||"").trim();
@@ -10,7 +10,6 @@
 }
 function deleteTurno_(e){
   const id=String(e.parameter.id||"").trim();
-  if(id==="gerencial")return ContentService.createTextOutput("Turno Gerencial protegido");
   deleteRow_("turnos","id",id);
   log_("excluiu_turno",e.parameter.login,e.parameter.nomeUsuario,id,"","Turno excluído");
   return ContentService.createTextOutput("ok");
@@ -19,10 +18,9 @@ function deleteTurno_(e){
 function salvarEmpresa_(e){
   const id=String(e.parameter.id||"").trim();
   const nome=String(e.parameter.nome||"").trim();
-  const turnos=String(e.parameter.turnos||"").trim();
   const ativo=String(e.parameter.ativo||"sim").trim()||"sim";
   if(!id||!nome)return ContentService.createTextOutput("Dados incompletos");
-  upsertObj_("empresas","id",id,{id,nome,turnos,ativo});
+  upsertObj_("empresas","id",id,{id,nome,ativo});
   log_("salvou_empresa",e.parameter.login,e.parameter.nomeUsuario,id,nome,"Empresa salva");
   return ContentService.createTextOutput("ok");
 }
@@ -34,7 +32,7 @@ function deleteEmpresa_(e){
 }
 
 function salvarChecklist_(e){
-  const obj={id:e.parameter.id,nome:e.parameter.nome,descricao:e.parameter.descricao,horario:normalizarHora_(e.parameter.horario),horarioFim:normalizarHora_(e.parameter.horarioFim),turnos:e.parameter.turnos,dias:e.parameter.dias,prioridade:e.parameter.prioridade,responsaveisPermitidos:e.parameter.responsaveisPermitidos||"",tarefas:e.parameter.tarefas,ativo:e.parameter.ativo,empresaId:e.parameter.empresaId||""};
+  const obj={id:e.parameter.id,nome:e.parameter.nome,descricao:e.parameter.descricao,horario:normalizarHora_(e.parameter.horario),horarioFim:normalizarHora_(e.parameter.horarioFim),turnos:e.parameter.turnos,dias:e.parameter.dias,prioridade:e.parameter.prioridade,tarefas:e.parameter.tarefas,ativo:e.parameter.ativo,empresaId:e.parameter.empresaId||""};
   if(!checklistCompleto_(obj))obj.ativo="nao";
   upsertObj_("checklists","id",obj.id,obj);
   log_("salvou_checklist",e.parameter.login,e.parameter.nomeUsuario,obj.id,obj.nome,"Checklist salvo"+(obj.ativo==="nao"?" como inativo por cadastro incompleto":""));
@@ -72,7 +70,7 @@ function nomeUsuarioPorLogin_(login){
   const usuarios=listar_("usuarios");
   const u=usuarios.find(x=>String(x.login)===login);
   if(u&&u.nome)return u.nome;
-  if(login===ADMIN_MESTRE)return "Andre";
+  if(login===ADMIN_MESTRE)return "André";
   return login?("Usuário "+login):"";
 }
 
