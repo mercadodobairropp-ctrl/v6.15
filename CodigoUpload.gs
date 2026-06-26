@@ -1,5 +1,5 @@
 const PASTA_DRIVE_ID = "13xr39zvMhe-YtqWBNuUG9BsCz6tD7W9g";
-const API_PRINCIPAL_URL = "https://script.google.com/macros/s/AKfycbw8efsu7_JEybMoxJbvt0gjn1yAHICY7HFSl0ZVl5OM3jl8iyWDk9Xz2_Zs7XgXD1Ir/exec";
+const API_PRINCIPAL_URL = "https://script.google.com/macros/s/AKfycbwGgEcA2WwMQIUYC2w1dTfTT-jPNllL0udgeyTUxEZJJ3VqNMIi4vPY5nv-dMKnkk4x/exec";
 
 function doGet(e){
   e=e||{parameter:{}};

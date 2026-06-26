@@ -50,7 +50,7 @@ Nenhuma empresa, turno, operador ou checklist de outra versao e criado.
 3. ENDERECOS CONFIGURADOS
 
 Principal:
-https://script.google.com/macros/s/AKfycbw8efsu7_JEybMoxJbvt0gjn1yAHICY7HFSl0ZVl5OM3jl8iyWDk9Xz2_Zs7XgXD1Ir/exec
+https://script.google.com/macros/s/AKfycbwGgEcA2WwMQIUYC2w1dTfTT-jPNllL0udgeyTUxEZJJ3VqNMIi4vPY5nv-dMKnkk4x/exec
 
 Upload:
 https://script.google.com/macros/s/AKfycbzkB5dLtdWDmm9NRhRnktqta69-Lvf_ix1H80-B8YGLf1d8_ap1_WH-FQOjweHrDXJ0Dg/exec
